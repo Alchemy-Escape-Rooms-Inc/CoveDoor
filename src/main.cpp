@@ -67,8 +67,8 @@ const int   MQTT_PORT     = 1883;
 // ============================================
 #define RPWM_PIN        4       // BTS7960 RPWM - Forward/Open direction
 #define LPWM_PIN        5       // BTS7960 LPWM - Reverse/Close direction
-#define LIMIT_OPEN      8       // Digital input for open limit switch
-#define LIMIT_CLOSED    9       // Digital input for closed limit switch
+#define LIMIT_OPEN      38      // Digital input for open limit switch
+#define LIMIT_CLOSED    39      // Digital input for closed limit switch
 
 // Motor Configuration
 #define MOTOR_SPEED     150     // PWM value 0-255
