@@ -70,11 +70,6 @@ const int   MQTT_PORT     = 1883;
 #define LIMIT_OPEN      8       // Digital input for open limit switch
 #define LIMIT_CLOSED    9       // Digital input for closed limit switch
 
-// Status LED pins
-#define STATUS_LED_OPEN    21   // Status LED - door open
-#define STATUS_LED_CLOSED  22   // Status LED - door closed
-#define STATUS_LED_MOVING  23   // Status LED - door moving
-
 // Motor Configuration
 #define MOTOR_SPEED     150     // PWM value 0-255
 
@@ -138,15 +133,11 @@ unsigned long lastHeartbeat = 0;
 unsigned long lastWifiCheck = 0;
 unsigned long lastMqttReconnect = 0;
 unsigned long bootTime = 0;
-unsigned long lastBlinkTime = 0;
 unsigned long motorStartTime = 0;
 
 const unsigned long HEARTBEAT_INTERVAL = 30000;
 const unsigned long WIFI_CHECK_INTERVAL = 30000;
 const unsigned long MQTT_RECONNECT_INTERVAL = 5000;
-const unsigned long BLINK_INTERVAL = 300;
-
-bool blinkState = false;
 bool systemReady = false;
 
 // Buffer for MQTT log messages
@@ -170,7 +161,6 @@ void startClosing();
 void stopMotor();
 void setMotorSpeed(int openSpeed, int closeSpeed);
 void checkLimitSwitches();
-void updateStatusLEDs();
 const char* getStateString(DoorState state);
 void publishLimitEvent(const char* event);
 
@@ -263,15 +253,6 @@ void setup() {
   Serial.print(", LIMIT_CLOSED: GPIO");
   Serial.println(LIMIT_CLOSED);
 
-  // Initialize status LED pins
-  pinMode(STATUS_LED_OPEN, OUTPUT);
-  pinMode(STATUS_LED_CLOSED, OUTPUT);
-  pinMode(STATUS_LED_MOVING, OUTPUT);
-  digitalWrite(STATUS_LED_OPEN, LOW);
-  digitalWrite(STATUS_LED_CLOSED, LOW);
-  digitalWrite(STATUS_LED_MOVING, LOW);
-  Serial.println("[INIT] Status LEDs configured");
-
   // Stop motor initially
   stopMotor();
 
@@ -305,7 +286,6 @@ void setup() {
     Serial.println("[INIT] Door position UNKNOWN (no limit active)");
   }
   previousState = currentState;
-  updateStatusLEDs();
 
   // Connect to WiFi
   setup_wifi();
@@ -387,18 +367,6 @@ void loop() {
       }
     }
   }
-
-  // Handle blinking animation for moving states
-  if (currentState == DOOR_OPENING || currentState == DOOR_CLOSING) {
-    if (millis() - lastBlinkTime > BLINK_INTERVAL) {
-      blinkState = !blinkState;
-      lastBlinkTime = millis();
-      digitalWrite(STATUS_LED_MOVING, blinkState ? HIGH : LOW);
-    }
-  }
-
-  // Update status LEDs
-  updateStatusLEDs();
 
   // Publish state changes
   if (currentState != previousState) {
@@ -678,8 +646,6 @@ void startOpening() {
   currentState = DOOR_OPENING;
   motorStartTime = millis();
   setMotorSpeed(0, 0);  // Start at 0, ramp will handle speed
-  blinkState = true;
-  lastBlinkTime = millis();
 
   if (mqtt.connected()) {
     send_status("OPENING");
@@ -698,8 +664,6 @@ void startClosing() {
   currentState = DOOR_CLOSING;
   motorStartTime = millis();
   setMotorSpeed(0, 0);  // Start at 0, ramp will handle speed
-  blinkState = true;
-  lastBlinkTime = millis();
 
   if (mqtt.connected()) {
     send_status("CLOSING");
@@ -770,44 +734,6 @@ void checkLimitSwitches() {
   if (currentState == DOOR_CLOSING && debouncedLimitClosed) {
     stopMotor();
     currentState = DOOR_CLOSED;
-  }
-}
-
-// ============================================
-// STATUS LED CONTROL
-// ============================================
-void updateStatusLEDs() {
-  switch (currentState) {
-    case DOOR_OPEN:
-      digitalWrite(STATUS_LED_OPEN, HIGH);
-      digitalWrite(STATUS_LED_CLOSED, LOW);
-      digitalWrite(STATUS_LED_MOVING, LOW);
-      break;
-
-    case DOOR_CLOSED:
-      digitalWrite(STATUS_LED_OPEN, LOW);
-      digitalWrite(STATUS_LED_CLOSED, HIGH);
-      digitalWrite(STATUS_LED_MOVING, LOW);
-      break;
-
-    case DOOR_OPENING:
-    case DOOR_CLOSING:
-      digitalWrite(STATUS_LED_OPEN, LOW);
-      digitalWrite(STATUS_LED_CLOSED, LOW);
-      // STATUS_LED_MOVING handled by blink in loop()
-      break;
-
-    case EMERGENCY_STOP:
-      digitalWrite(STATUS_LED_OPEN, HIGH);
-      digitalWrite(STATUS_LED_CLOSED, HIGH);
-      digitalWrite(STATUS_LED_MOVING, HIGH);
-      break;
-
-    default:
-      digitalWrite(STATUS_LED_OPEN, LOW);
-      digitalWrite(STATUS_LED_CLOSED, LOW);
-      digitalWrite(STATUS_LED_MOVING, LOW);
-      break;
   }
 }
 
