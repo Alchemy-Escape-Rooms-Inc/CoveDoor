@@ -331,6 +331,47 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   JungleDoor) is an ESP32-S3/Arduino 3.x feature. Do not "modernize"
 //   this code to the newer API without verifying board compatibility.
 //
+//  ── TROUBLESHOOTING LOG (2026-02-14) ───────────────────────────────────────
+//
+// @QUIRK:GPIO5_BOOT_CRASH
+//   SYMPTOM: Firmware runs normally when powered via USB alone. The moment
+//   the ESP32 is seated into the screw terminal breakout (even with NO
+//   external power on the terminal), the board boot-loops with:
+//     rst:0x10 (RTCWDT_RTC_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+//     invalid header: 0xffffffff
+//   CAUSE: GPIO 5 is a strapping pin on the regular ESP32. It controls
+//   SDIO timing during the ROM bootloader's first microseconds — before
+//   any user code runs. When the screw terminal makes contact with GPIO 5
+//   (LPWM pin), it pulls the pin to an unexpected state during boot,
+//   causing the ESP32 to attempt flash reads at the wrong voltage (1.8V
+//   instead of 3.3V). This produces the 0xffffffff invalid headers.
+//   FIX: Move LPWM off GPIO 5 to a non-strapping pin. Strapping pins on
+//   the regular ESP32 to AVOID for signals with external connections:
+//   GPIO 0, 2, 5, 12, 15. This does NOT affect the ESP32-S3 which has
+//   different strapping pins.
+//   NOTE: The code compiles and runs fine — this is purely a hardware
+//   boot-level issue. pinMode() and ledcAttachPin() work correctly on
+//   GPIO 5 after boot. The problem is only during the first microseconds
+//   of power-on when the ROM bootloader reads strapping pin states.
+//
+// @QUIRK:GPIO33_DEFECTIVE_PULLUP
+//   SYMPTOM: GPIO 33's internal pull-up only reaches 0.55V instead of
+//   3.3V, even with absolutely nothing connected to the pin. Measured
+//   with multimeter — confirmed defective on this specific board.
+//   CAUSE: Defective internal pull-up resistor on this particular ESP32
+//   unit. Not a code issue, not a wiring issue — the silicon is bad on
+//   this one pin. INPUT_PULLUP is configured correctly in firmware but
+//   the hardware cannot deliver the expected voltage.
+//   EFFECT: Any sensor on GPIO 33 (limit switch, reed switch, etc.)
+//   will never read a clean HIGH when the switch is open. The pin sits
+//   in the indeterminate zone and triggers false readings.
+//   FIX: Moved LIMIT_CLOSED from GPIO 33 to GPIO 32. If GPIO 33 must
+//   be used on this board, add an external 10K pull-up resistor from
+//   the pin to 3.3V to overpower the defective internal pull-up.
+//   NOTE: This is specific to this individual ESP32 board. Replacement
+//   boards will likely have a working GPIO 33. Document the board if
+//   it gets swapped out.
+//
 // @END:OPERATIONS
 
 
