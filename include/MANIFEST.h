@@ -144,8 +144,8 @@ inline constexpr int RPWM_PIN = 4;                                // @PIN:RPWM  
 inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
-inline constexpr int LIMIT_OPEN   = 32;                           // @PIN:LIMIT_OPEN   | Mechanical switch, INPUT_PULLUP, active LOW
-inline constexpr int LIMIT_CLOSED = 33;                           // @PIN:LIMIT_CLOSED | Mechanical switch, INPUT_PULLUP, active LOW
+inline constexpr int LIMIT_OPEN   = 16;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
+inline constexpr int LIMIT_CLOSED = 32;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
 
 // @END:PINS
 
@@ -217,13 +217,13 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   @DETAIL:   Driven by BTS7960. Opens via RPWM, closes via LPWM.
 //              Total travel time approximately 4 seconds with ramping.
 //
-// @COMPONENT:  Mechanical Limit Switch (Open Position)
+// @COMPONENT:  Magnetic Reed Switch (Open Position)
 //   @PURPOSE:  Detects when door has fully opened
-//   @DETAIL:   Pin 32, INPUT_PULLUP, active LOW. Working and reliable.
+//   @DETAIL:   Pin 16, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
-// @COMPONENT:  Mechanical Limit Switch (Closed Position)
+// @COMPONENT:  Magnetic Reed Switch (Closed Position)
 //   @PURPOSE:  Detects when door has fully closed
-//   @DETAIL:   Pin 33, INPUT_PULLUP, active LOW. Working and reliable.
+//   @DETAIL:   Pin 32, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
 // @END:COMPONENTS
 
@@ -301,9 +301,10 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 // @QUIRK:ESP32_PIN_CHANGE
 //   The limit switches were originally on GPIO 38 and 39 (from the ESP32-S3
 //   version). When the board was changed to a regular ESP32, the pins were
-//   moved to GPIO 32 and 33 because pins 34-39 on the regular ESP32 are
-//   input-only with no internal pull-up resistors. GPIO 32 and 33 fully
-//   support INPUT_PULLUP and do not require external pull-up resistors.
+//   first moved to GPIO 32 and 33, but GPIO 33's internal pull-up was
+//   defective on the installed board (stuck at 0.55V with nothing connected).
+//   Limit switches were also changed from mechanical to magnetic reed switches.
+//   Final pin assignment: LIMIT_OPEN on GPIO 16, LIMIT_CLOSED on GPIO 32.
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -354,12 +355,12 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   ESP32 Pin 4  (RPWM) ──────── BTS7960 RPWM (forward/open PWM)
 //   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse/close PWM)
 //
-//   ESP32 Pin 32 ──────────────── Mechanical Limit Switch (OPEN position)
-//                                 Switch connects pin to GND when triggered
+//   ESP32 Pin 16 ──────────────── Magnetic Reed Switch (OPEN position)
+//                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
-//   ESP32 Pin 33 ──────────────── Mechanical Limit Switch (CLOSED position)
-//                                 Switch connects pin to GND when triggered
+//   ESP32 Pin 32 ──────────────── Magnetic Reed Switch (CLOSED position)
+//                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
 //   BTS7960 R_EN ──────────────── 3.3V (always enabled)
