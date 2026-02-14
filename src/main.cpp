@@ -364,6 +364,8 @@ void loop() {
 
     if (mqtt.connected()) {
       send_status(getStateString(currentState));
+      // Clear limit hit status on every state change
+      mqtt.publish(mqtt_topic_limit.c_str(), "CLEAR", false);
     }
   }
 
