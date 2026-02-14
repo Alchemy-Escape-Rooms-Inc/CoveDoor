@@ -1,0 +1,375 @@
+/**
+ * ============================================================================
+ *  ALCHEMY ESCAPE ROOMS — FIRMWARE MANIFEST
+ * ============================================================================
+ *
+ *  THIS FILE IS THE SINGLE SOURCE OF TRUTH.
+ *
+ *  It serves two masters simultaneously:
+ *
+ *    1. THE COMPILER — Every constant the firmware needs (pins, IPs, ports,
+ *       thresholds, timing) is defined here as real C++ code. The firmware
+ *       #includes this file and uses these values directly.
+ *
+ *    2. THE GRIMOIRE PARSER — A Python script running on M3 at 6 AM reads
+ *       this file as plain text and extracts values tagged with @FIELD_NAME
+ *       in the comments. Those values populate the WatchTower Grimoire
+ *       device registry, wiring reference, and operations manual.
+ *
+ *  Because both systems read from the same lines, the documentation can
+ *  never drift from the firmware. Change a pin number here, and the Grimoire
+ *  updates automatically. There is no second file to keep in sync.
+ *
+ *  RULES:
+ *    1. Every field marked [REQUIRED] must be filled in before deployment.
+ *    2. Update this file FIRST when changing hardware, pins, or topics.
+ *    3. The 6 AM parser looks for @TAG patterns — don't rename them.
+ *    4. Descriptive-only sections (operations, quirks) are pure comments.
+ *       Constants sections are real code + comment tags on the same line.
+ *    5. This file is the sole source of configuration values — main.cpp
+ *       should reference these constants, not hardcode its own.
+ *
+ *  LAST UPDATED: 2026-02-12
+ *  MANIFEST VERSION: 2.0
+ * ============================================================================
+ */
+
+#pragma once
+#include <cstdint>
+
+// ============================================================================
+//  SECTION 1 — IDENTITY
+// ============================================================================
+//
+// @MANIFEST:IDENTITY
+// @PROP_NAME:        CoveDoor
+// @INSTANCE_COUNT:   1
+//
+// @DESCRIPTION:      Secret automatic sliding door that transitions players
+//                    from the Monkey Altar Room into the Cove. The door is
+//                    disguised as part of the room wall — players do not know
+//                    it exists until it opens. A BTS7960 dual H-bridge motor
+//                    driver controls a DC motor that slides the door along a
+//                    track. Two mechanical limit switches (with external
+//                    pull-up resistors) define the open and closed positions.
+//                    The door responds to OPEN, CLOSE, and STOP commands via
+//                    MQTT, with smooth ramped motor acceleration and
+//                    deceleration for theatrical effect.
+//
+// @ROOM:             Monkey Altar Room (transitions to Cove)
+// @BOARD:            ESP32-DevKitC
+// @FRAMEWORK:        Arduino (PlatformIO)
+// @REPO:             https://github.com/Alchemy-Escape-Rooms-Inc/CoveSlidingDoor
+// @BUILD_STATUS:     INSTALLED
+// @CODE_HEALTH:      GOOD
+// @WATCHTOWER:       COMPLIANT
+// @END:IDENTITY
+
+namespace manifest {
+
+// ── Device Identity ─────────────────────────────────────────────────────────
+inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
+inline constexpr const char* FIRMWARE_VERSION  = "1.0.0";         // @FIRMWARE_VERSION
+
+
+// ============================================================================
+//  SECTION 2 — NETWORK CONFIGURATION
+// ============================================================================
+// @MANIFEST:NETWORK
+
+// ── WiFi ────────────────────────────────────────────────────────────────────
+inline constexpr const char* WIFI_SSID     = "AlchemyGuest";      // @WIFI_SSID
+inline constexpr const char* WIFI_PASSWORD = "VoodooVacation5601"; // @WIFI_PASS
+
+// ── MQTT Broker ─────────────────────────────────────────────────────────────
+inline constexpr const char* MQTT_SERVER   = "10.1.10.115";       // @BROKER_IP
+inline constexpr int         MQTT_PORT     = 1883;                // @BROKER_PORT
+// MQTT Client ID: "CoveDoor" (matches DEVICE_NAME)
+
+// ── Heartbeat ───────────────────────────────────────────────────────────────
+inline constexpr unsigned long HEARTBEAT_INTERVAL = 30000;        // @HEARTBEAT_MS  (30 seconds)
+
+//  ── TOPIC MAP ──────────────────────────────────────────────────────────────
+//  Topics are built dynamically from DEVICE_NAME at runtime:
+//    "MermaidsTale/" + DEVICE_NAME + "/{suffix}"
+//
+//  SUBSCRIPTIONS:
+//  @SUBSCRIBE:  MermaidsTale/CoveDoor/command      | All commands (standard + door control)
+//
+//  PUBLICATIONS:
+//  @PUBLISH:  MermaidsTale/CoveDoor/command         | PONG, STATUS, OK responses  | retain:no
+//  @PUBLISH:  MermaidsTale/CoveDoor/status          | State changes + heartbeat   | retain:no
+//  @PUBLISH:  MermaidsTale/CoveDoor/log             | Mirrored serial output      | retain:no
+//  @PUBLISH:  MermaidsTale/CoveDoor/limit           | Limit switch events         | retain:no
+//
+//  NOTE: PONG and STATUS responses publish on /command (not /status).
+//        This differs from JungleDoor which publishes PONG on /status.
+//
+//  SUPPORTED COMMANDS (via /command topic):
+//  @COMMAND:  PING          | Responds PONG on /command topic         | Health check
+//  @COMMAND:  STATUS        | Sends state report on /command topic    | Full diagnostic
+//  @COMMAND:  RESET         | Stops motor, reboots ESP32              | Also accepts REBOOT, RESTART
+//  @COMMAND:  PUZZLE_RESET  | Stops motor, re-reads limits, resets state | No reboot
+//  @COMMAND:  OPEN          | Opens the door (ramp up → full → ramp down)
+//  @COMMAND:  CLOSE         | Closes the door (ramp up → full → ramp down)
+//  @COMMAND:  STOP          | Emergency stop — kills motor immediately
+//
+//  LIMIT SWITCH EVENTS (published on /limit topic):
+//  @LIMIT_EVENT:  LIMIT_OPEN_HIT      | Door reached fully open position
+//  @LIMIT_EVENT:  LIMIT_CLOSED_HIT    | Door reached fully closed position
+//  @LIMIT_EVENT:  LIMIT_OPEN_CLEAR    | Door moved away from open limit
+//  @LIMIT_EVENT:  LIMIT_CLOSED_CLEAR  | Door moved away from closed limit
+//
+//  STATUS MESSAGES (published on /status topic):
+//  @STATUS_MSG:  ONLINE          | Sent on boot and MQTT reconnect
+//  @STATUS_MSG:  OPENING         | Door motor started, opening direction
+//  @STATUS_MSG:  CLOSING         | Door motor started, closing direction
+//  @STATUS_MSG:  OPEN            | Door reached open position (limit or timeout)
+//  @STATUS_MSG:  CLOSED          | Door reached closed position (limit or timeout)
+//  @STATUS_MSG:  STOPPED         | Motor stopped via STOP command
+//  @STATUS_MSG:  ALREADY_OPEN    | OPEN command received but door already open
+//  @STATUS_MSG:  ALREADY_CLOSED  | CLOSE command received but door already closed
+//  @STATUS_MSG:  HEARTBEAT:...   | Periodic heartbeat with state, uptime, RSSI
+//
+// @END:NETWORK
+
+
+// ============================================================================
+//  SECTION 3 — PIN CONFIGURATION
+// ============================================================================
+// @MANIFEST:PINS
+
+// ── Motor Driver (BTS7960 Dual H-Bridge) ────────────────────────────────────
+inline constexpr int RPWM_PIN = 4;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
+inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
+
+// ── Limit Switches ──────────────────────────────────────────────────────────
+inline constexpr int LIMIT_OPEN   = 32;                           // @PIN:LIMIT_OPEN   | Mechanical switch, INPUT_PULLUP, active LOW
+inline constexpr int LIMIT_CLOSED = 33;                           // @PIN:LIMIT_CLOSED | Mechanical switch, INPUT_PULLUP, active LOW
+
+// @END:PINS
+
+
+// ============================================================================
+//  SECTION 4 — MOTOR CONFIGURATION
+// ============================================================================
+// @MANIFEST:MOTOR
+
+inline constexpr int MOTOR_SPEED = 150;                           // @MOTOR:SPEED | PWM duty 0-255 (150 ≈ 59%)
+
+// ── PWM Configuration ───────────────────────────────────────────────────────
+inline constexpr int PWM_CHANNEL_R = 0;                           // @PWM:CHANNEL_R  | LEDC channel for RPWM (open)
+inline constexpr int PWM_CHANNEL_L = 1;                           // @PWM:CHANNEL_L  | LEDC channel for LPWM (close)
+inline constexpr int PWM_FREQ      = 5000;                        // @PWM:FREQ       | 5kHz PWM frequency
+inline constexpr int PWM_RESOLUTION = 8;                          // @PWM:RESOLUTION | 8-bit (0-255)
+
+// ── Door Movement Timing ────────────────────────────────────────────────────
+inline constexpr int DOOR_RAMP_UP_MS    = 500;                    // @DOOR:RAMP_UP    | 0.5s acceleration to full speed
+inline constexpr int DOOR_FULL_SPEED_MS = 3000;                   // @DOOR:FULL_SPEED | 3s at full speed
+inline constexpr int DOOR_RAMP_DOWN_MS  = 500;                    // @DOOR:RAMP_DOWN  | 0.5s deceleration to stop
+inline constexpr int DOOR_TOTAL_TIME_MS = 4000;                   // @DOOR:TOTAL_TIME | 4s total movement window (backup timeout)
+
+// @END:MOTOR
+
+
+// ============================================================================
+//  SECTION 5 — SENSOR THRESHOLDS
+// ============================================================================
+// @MANIFEST:THRESHOLDS
+
+// ── Debounce ────────────────────────────────────────────────────────────────
+inline constexpr int LIMIT_DEBOUNCE_MS = 150;                     // @DEBOUNCE:LIMIT  | 150ms debounce for both limit switches
+
+// @END:THRESHOLDS
+
+
+// ============================================================================
+//  SECTION 6 — TIMING CONSTANTS
+// ============================================================================
+// @MANIFEST:TIMING
+
+inline constexpr unsigned long WIFI_CHECK_INTERVAL     = 30000;   // @TIMING:WIFI_CHECK     | Check WiFi connection every 30s
+inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQTT_RECONNECT | Retry MQTT connection every 5s
+
+// @END:TIMING
+
+} // namespace manifest
+
+
+// ============================================================================
+//  SECTION 7 — COMPONENTS
+// ============================================================================
+//
+// @MANIFEST:COMPONENTS
+//
+// @COMPONENT:  BTS7960 Dual H-Bridge Motor Driver
+//   @PURPOSE:  Controls the DC motor that slides the door along its track
+//   @DETAIL:   2-PWM interface (RPWM + LPWM). RPWM drives the open direction,
+//              LPWM drives the close direction. Only one is active at a time.
+//              R_EN and L_EN are tied to 3.3V (always enabled). Motor runs at
+//              59% duty (150/255) with smooth ramp-up and ramp-down for
+//              theatrical door movement. Unlike the Cytron MD13S (used on
+//              JungleDoor), the BTS7960 uses separate PWM pins for each
+//              direction instead of DIR + PWM.
+//
+// @COMPONENT:  DC Sliding Door Motor
+//   @PURPOSE:  Physically moves the door panel along a track
+//   @DETAIL:   Driven by BTS7960. Opens via RPWM, closes via LPWM.
+//              Total travel time approximately 4 seconds with ramping.
+//
+// @COMPONENT:  Mechanical Limit Switch (Open Position)
+//   @PURPOSE:  Detects when door has fully opened
+//   @DETAIL:   Pin 32, INPUT_PULLUP, active LOW. Working and reliable.
+//
+// @COMPONENT:  Mechanical Limit Switch (Closed Position)
+//   @PURPOSE:  Detects when door has fully closed
+//   @DETAIL:   Pin 33, INPUT_PULLUP, active LOW. Working and reliable.
+//
+// @END:COMPONENTS
+
+
+// ============================================================================
+//  SECTION 8 — OPERATIONS
+// ============================================================================
+//
+// @MANIFEST:OPERATIONS
+//
+//  ── PHYSICAL LOCATION ──────────────────────────────────────────────────────
+//
+// @LOCATION:  Hidden above the door frame. The ESP32 and BTS7960 motor driver
+//             are mounted in the space directly above the CoveDoor. Access
+//             from above.
+//
+//  ── RESET PROCEDURES ───────────────────────────────────────────────────────
+//
+// @RESET:SOFTWARE
+//   Send "RESET" (or "REBOOT" or "RESTART") to MermaidsTale/CoveDoor/command
+//   Device responds "OK" on /command, stops motor, then reboots
+//   After reboot: reconnects WiFi, reconnects MQTT, reads limit switches
+//   to determine initial door position, publishes ONLINE
+//   Expected recovery time: 10-15 seconds
+//
+// @RESET:PUZZLE
+//   Send "PUZZLE_RESET" to MermaidsTale/CoveDoor/command
+//   Stops motor, re-reads limit switches, sets state to match physical
+//   position (CLOSED if closed limit active, OPEN if open limit active,
+//   STOPPED if neither). No reboot, no WiFi/MQTT reconnect.
+//   Responds "OK" on /command topic.
+//   Use between game sessions to sync state with physical door position.
+//
+// @RESET:HARDWARE
+//   The ESP32 and BTS7960 are hidden above the door frame. Access from above,
+//   disconnect and reconnect power to the ESP32. After power-on, monitor
+//   MermaidsTale/CoveDoor/status for ONLINE message. The door will read its
+//   limit switches on boot to determine its current position.
+//
+//  ── DOOR OPERATION ─────────────────────────────────────────────────────────
+//
+// @OPERATION:OPEN
+//   Send "OPEN" to MermaidsTale/CoveDoor/command
+//   Motor ramps up over 0.5s via RPWM, runs at PWM 150 for 3s, ramps down
+//   over 0.5s. Publishes "OPENING" immediately, then "OPEN" when complete.
+//   Stops early if open limit switch triggers.
+//   Falls back to 4-second timer if limit switch doesn't fire.
+//
+// @OPERATION:CLOSE
+//   Send "CLOSE" to MermaidsTale/CoveDoor/command
+//   Same ramping profile as OPEN but via LPWM (reverse direction).
+//   Publishes "CLOSING" immediately, then "CLOSED" when complete.
+//   Stops early if closed limit switch triggers.
+//   Falls back to 4-second timer if limit switch doesn't fire.
+//
+// @OPERATION:EMERGENCY_STOP
+//   Send "STOP" to MermaidsTale/CoveDoor/command
+//   Both RPWM and LPWM immediately set to 0 — no ramp-down.
+//   Publishes "STOPPED" on /status.
+//   Door remains in whatever position it stopped at.
+//
+//  ── TEST PROCEDURE ─────────────────────────────────────────────────────────
+//
+// @TEST:STEP1  Send PING to /command → expect PONG on /command (confirms MQTT)
+// @TEST:STEP2  Send STATUS to /command → expect state, uptime, RSSI, version, limit states on /command
+// @TEST:STEP3  Send OPEN to /command → door should slide open, expect OPENING then OPEN on /status
+// @TEST:STEP4  Verify LIMIT_OPEN_HIT appears on /limit topic when door reaches open position
+// @TEST:STEP5  Send CLOSE to /command → door should slide closed, expect CLOSING then CLOSED on /status
+// @TEST:STEP6  Verify LIMIT_CLOSED_HIT appears on /limit topic when door reaches closed position
+// @TEST:STEP7  Send STOP during movement → motor should stop immediately
+// @TEST:STEP8  Send PUZZLE_RESET → expect OK on /command, state syncs to physical position
+//
+//  ── KNOWN QUIRKS ───────────────────────────────────────────────────────────
+//
+// @QUIRK:ESP32_PIN_CHANGE
+//   The limit switches were originally on GPIO 38 and 39 (from the ESP32-S3
+//   version). When the board was changed to a regular ESP32, the pins were
+//   moved to GPIO 32 and 33 because pins 34-39 on the regular ESP32 are
+//   input-only with no internal pull-up resistors. GPIO 32 and 33 fully
+//   support INPUT_PULLUP and do not require external pull-up resistors.
+//
+// @QUIRK:NO_WATCHDOG
+//   This firmware does not implement a hardware watchdog timer. If the main
+//   loop hangs (e.g., WiFi blocking, MQTT stall), the device will not
+//   auto-recover. A manual RESET command or hardware power cycle is required.
+//   Consider adding esp_task_wdt for future versions.
+//
+// @QUIRK:TIMEOUT_BACKUP
+//   The 4-second movement timer serves as a backup timeout. The limit
+//   switches are the primary stop mechanism and are working reliably. If a
+//   limit switch fails to trigger within 4 seconds, the motor stops anyway
+//   and the firmware logs "[TIMEOUT] Door open/close timeout - no limit hit"
+//   on the /log topic. If you see timeout messages, check the limit switches.
+//
+// @QUIRK:PONG_ON_COMMAND
+//   PONG and STATUS responses are published on the /command topic, not
+//   /status. This is different from JungleDoor (which publishes PONG on
+//   /status). WatchTower System Checker should listen on /command for
+//   health check responses from this device.
+//
+// @QUIRK:LEDC_API_VERSION
+//   The code uses the older ledcSetup()/ledcAttachPin() API, which is
+//   correct for the regular ESP32. The newer ledcAttach() API (used by
+//   JungleDoor) is an ESP32-S3/Arduino 3.x feature. Do not "modernize"
+//   this code to the newer API without verifying board compatibility.
+//
+// @END:OPERATIONS
+
+
+// ============================================================================
+//  SECTION 9 — DEPENDENCIES
+// ============================================================================
+//
+// @MANIFEST:DEPENDENCIES
+//
+// @LIB:  WiFi              | ESP32 WiFi driver          | Built-in
+// @LIB:  PubSubClient      | MQTT client                | v2.8+
+//
+// @END:DEPENDENCIES
+
+
+// ============================================================================
+//  SECTION 10 — WIRING SUMMARY
+// ============================================================================
+//
+// @MANIFEST:WIRING
+//
+//   ESP32 Pin 4  (RPWM) ──────── BTS7960 RPWM (forward/open PWM)
+//   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse/close PWM)
+//
+//   ESP32 Pin 32 ──────────────── Mechanical Limit Switch (OPEN position)
+//                                 Switch connects pin to GND when triggered
+//                                 INPUT_PULLUP, active LOW
+//
+//   ESP32 Pin 33 ──────────────── Mechanical Limit Switch (CLOSED position)
+//                                 Switch connects pin to GND when triggered
+//                                 INPUT_PULLUP, active LOW
+//
+//   BTS7960 R_EN ──────────────── 3.3V (always enabled)
+//   BTS7960 L_EN ──────────────── 3.3V (always enabled)
+//   BTS7960 VCC  ──────────────── 5V
+//   BTS7960 GND  ──────────────── GND
+//   BTS7960 MOTOR OUT ─────────── DC sliding door motor
+//
+//   ESP32 Power ───────────────── USB, hidden above the door frame
+//
+//   Physical Location: Hidden above the door frame, accessible from above
+//
+// @END:WIRING

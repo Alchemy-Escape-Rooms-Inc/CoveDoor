@@ -1,7 +1,7 @@
 /*
  * ============================================
  * ALCHEMY ESCAPE ROOM - COVE SLIDING DOOR CONTROLLER
- * ESP32-S3 VERSION WITH BTS7960 MOTOR DRIVER
+ * ESP32 VERSION WITH BTS7960 MOTOR DRIVER
  * ============================================
  *
  * Version: 1.0.0
@@ -49,44 +49,45 @@
 #include <PubSubClient.h>
 
 // ============================================
-// DEVICE CONFIGURATION
+// DEVICE CONFIGURATION — Sourced from MANIFEST.h
 // ============================================
-#define DEVICE_NAME       "CoveDoor"
-#define FIRMWARE_VERSION  "1.0.0"
+#include "MANIFEST.h"
 
-// WiFi Settings
-const char* WIFI_SSID     = "AlchemyGuest";
-const char* WIFI_PASSWORD = "VoodooVacation5601";
+// Bridge: all code below still uses these names, but values come from manifest
+#define DEVICE_NAME       manifest::DEVICE_NAME
+#define FIRMWARE_VERSION  manifest::FIRMWARE_VERSION
 
-// MQTT Settings
-const char* MQTT_SERVER   = "10.1.10.115";
-const int   MQTT_PORT     = 1883;
+const char* WIFI_SSID     = manifest::WIFI_SSID;
+const char* WIFI_PASSWORD = manifest::WIFI_PASSWORD;
+
+const char* MQTT_SERVER   = manifest::MQTT_SERVER;
+const int   MQTT_PORT     = manifest::MQTT_PORT;
 
 // ============================================
-// PIN DEFINITIONS - BTS7960 Motor Driver
+// PIN DEFINITIONS — Sourced from MANIFEST.h
 // ============================================
-#define RPWM_PIN        4       // BTS7960 RPWM - Forward/Open direction
-#define LPWM_PIN        5       // BTS7960 LPWM - Reverse/Close direction
-#define LIMIT_OPEN      38      // Digital input for open limit switch
-#define LIMIT_CLOSED    39      // Digital input for closed limit switch
+#define RPWM_PIN        manifest::RPWM_PIN
+#define LPWM_PIN        manifest::LPWM_PIN
+#define LIMIT_OPEN      manifest::LIMIT_OPEN
+#define LIMIT_CLOSED    manifest::LIMIT_CLOSED
 
-// Motor Configuration
-#define MOTOR_SPEED     150     // PWM value 0-255
+// Motor Configuration — Sourced from MANIFEST.h
+#define MOTOR_SPEED     manifest::MOTOR_SPEED
 
-// PWM Configuration for ESP32
-#define PWM_CHANNEL_R   0       // PWM channel for RPWM
-#define PWM_CHANNEL_L   1       // PWM channel for LPWM
-#define PWM_FREQ        5000
-#define PWM_RESOLUTION  8
+// PWM Configuration — Sourced from MANIFEST.h
+#define PWM_CHANNEL_R   manifest::PWM_CHANNEL_R
+#define PWM_CHANNEL_L   manifest::PWM_CHANNEL_L
+#define PWM_FREQ        manifest::PWM_FREQ
+#define PWM_RESOLUTION  manifest::PWM_RESOLUTION
 
-// Debounce settings
-#define LIMIT_DEBOUNCE_MS 150
+// Debounce — Sourced from MANIFEST.h
+#define LIMIT_DEBOUNCE_MS manifest::LIMIT_DEBOUNCE_MS
 
-// Door timing (milliseconds)
-#define DOOR_RAMP_UP_MS     500   // 0.5s to reach full speed
-#define DOOR_FULL_SPEED_MS  3000  // 3s at full speed
-#define DOOR_RAMP_DOWN_MS   500   // 0.5s to slow down
-#define DOOR_TOTAL_TIME_MS  4000  // Total movement time
+// Door timing — Sourced from MANIFEST.h
+#define DOOR_RAMP_UP_MS     manifest::DOOR_RAMP_UP_MS
+#define DOOR_FULL_SPEED_MS  manifest::DOOR_FULL_SPEED_MS
+#define DOOR_RAMP_DOWN_MS   manifest::DOOR_RAMP_DOWN_MS
+#define DOOR_TOTAL_TIME_MS  manifest::DOOR_TOTAL_TIME_MS
 
 // ============================================
 // MQTT TOPICS
@@ -135,9 +136,9 @@ unsigned long lastMqttReconnect = 0;
 unsigned long bootTime = 0;
 unsigned long motorStartTime = 0;
 
-const unsigned long HEARTBEAT_INTERVAL = 30000;
-const unsigned long WIFI_CHECK_INTERVAL = 30000;
-const unsigned long MQTT_RECONNECT_INTERVAL = 5000;
+const unsigned long HEARTBEAT_INTERVAL = manifest::HEARTBEAT_INTERVAL;
+const unsigned long WIFI_CHECK_INTERVAL = manifest::WIFI_CHECK_INTERVAL;
+const unsigned long MQTT_RECONNECT_INTERVAL = manifest::MQTT_RECONNECT_INTERVAL;
 bool systemReady = false;
 
 // Buffer for MQTT log messages
@@ -201,7 +202,7 @@ void setup() {
 
   Serial.println("\n");
   Serial.println("============================================");
-  Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32-S3");
+  Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32");
   Serial.println("   BTS7960 Dual H-Bridge Motor Driver");
   Serial.println("============================================");
   Serial.print("Device Name: ");
