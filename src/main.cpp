@@ -590,6 +590,28 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
+  // TEST_MOTOR - Pulse both directions at full speed to verify wiring
+  if (strcmp(msg, "TEST_MOTOR") == 0) {
+    mqttLog("[TEST] Motor test starting...");
+    send_status("TESTING");
+
+    mqttLog("[TEST] RPWM (open direction) full speed for 2s...");
+    setMotorSpeed(MOTOR_SPEED, 0);
+    delay(2000);
+    stopMotor();
+    delay(500);
+
+    mqttLog("[TEST] LPWM (close direction) full speed for 2s...");
+    setMotorSpeed(0, MOTOR_SPEED);
+    delay(2000);
+    stopMotor();
+
+    mqttLog("[TEST] Motor test complete");
+    currentState = DOOR_STOPPED;
+    send_status("STOPPED");
+    return;
+  }
+
   mqttLogf("[CMD] Unknown command: %s", msg);
 }
 
