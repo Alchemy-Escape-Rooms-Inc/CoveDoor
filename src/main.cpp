@@ -85,9 +85,7 @@ const int   MQTT_PORT     = manifest::MQTT_PORT;
 
 // Door timing — Sourced from MANIFEST.h
 #define DOOR_RAMP_UP_MS     manifest::DOOR_RAMP_UP_MS
-#define DOOR_FULL_SPEED_MS  manifest::DOOR_FULL_SPEED_MS
-#define DOOR_RAMP_DOWN_MS   manifest::DOOR_RAMP_DOWN_MS
-#define DOOR_TOTAL_TIME_MS  manifest::DOOR_TOTAL_TIME_MS
+#define DOOR_TIMEOUT_MS     manifest::DOOR_TIMEOUT_MS
 
 // ============================================
 // MQTT TOPICS
@@ -134,7 +132,7 @@ unsigned long lastHeartbeat = 0;
 unsigned long lastWifiCheck = 0;
 unsigned long lastMqttReconnect = 0;
 unsigned long bootTime = 0;
-unsigned long motorStartTime = 0;
+unsigned long motorStartTime = 0;  // Used for ramp-up timing
 
 const unsigned long HEARTBEAT_INTERVAL = manifest::HEARTBEAT_INTERVAL;
 const unsigned long WIFI_CHECK_INTERVAL = manifest::WIFI_CHECK_INTERVAL;
@@ -332,35 +330,25 @@ void loop() {
   // Handle motor ramping for opening and closing
   if (currentState == DOOR_OPENING || currentState == DOOR_CLOSING) {
     unsigned long elapsed = millis() - motorStartTime;
-    int speed = 0;
 
-    if (elapsed < DOOR_RAMP_UP_MS) {
-      // Ramping up
-      speed = map(elapsed, 0, DOOR_RAMP_UP_MS, 0, MOTOR_SPEED);
-    } else if (elapsed < (DOOR_TOTAL_TIME_MS - DOOR_RAMP_DOWN_MS)) {
-      // Full speed
-      speed = MOTOR_SPEED;
-    } else if (elapsed < DOOR_TOTAL_TIME_MS) {
-      // Ramping down
-      unsigned long rampDownElapsed = elapsed - (DOOR_TOTAL_TIME_MS - DOOR_RAMP_DOWN_MS);
-      speed = map(rampDownElapsed, 0, DOOR_RAMP_DOWN_MS, MOTOR_SPEED, 0);
-    } else {
-      // Done - timeout reached without hitting limit
-      speed = 0;
+    if (elapsed >= DOOR_TIMEOUT_MS) {
+      // Safety timeout — limit switch was not hit
       stopMotor();
-      if (currentState == DOOR_OPENING) {
-        mqttLog("[TIMEOUT] Door open timeout - no limit hit");
-        currentState = DOOR_OPEN;
-        send_status("OPEN");
-      } else {
-        mqttLog("[TIMEOUT] Door close timeout - no limit hit");
-        currentState = DOOR_CLOSED;
-        send_status("CLOSED");
-      }
-    }
+      mqttLogf("[TIMEOUT] Door %s safety timeout - no limit hit",
+               currentState == DOOR_OPENING ? "open" : "close");
+      currentState = DOOR_STOPPED;
+      send_status("STOPPED");
+    } else {
+      int speed = 0;
 
-    // Apply speed if still moving
-    if (currentState == DOOR_OPENING || currentState == DOOR_CLOSING) {
+      if (elapsed < DOOR_RAMP_UP_MS) {
+        // Ramping up
+        speed = map(elapsed, 0, DOOR_RAMP_UP_MS, 0, MOTOR_SPEED);
+      } else {
+        // Full speed — limit switches handle stopping
+        speed = MOTOR_SPEED;
+      }
+
       if (currentState == DOOR_OPENING) {
         setMotorSpeed(speed, 0);  // RPWM for opening
       } else {

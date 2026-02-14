@@ -165,9 +165,7 @@ inline constexpr int PWM_RESOLUTION = 8;                          // @PWM:RESOLU
 
 // ── Door Movement Timing ────────────────────────────────────────────────────
 inline constexpr int DOOR_RAMP_UP_MS    = 500;                    // @DOOR:RAMP_UP    | 0.5s acceleration to full speed
-inline constexpr int DOOR_FULL_SPEED_MS = 3000;                   // @DOOR:FULL_SPEED | 3s at full speed
-inline constexpr int DOOR_RAMP_DOWN_MS  = 500;                    // @DOOR:RAMP_DOWN  | 0.5s deceleration to stop
-inline constexpr int DOOR_TOTAL_TIME_MS = 4000;                   // @DOOR:TOTAL_TIME | 4s total movement window (backup timeout)
+inline constexpr int DOOR_TIMEOUT_MS    = 8000;                   // @DOOR:TIMEOUT    | 8s safety timeout if limit switch not hit
 
 // @END:MOTOR
 
