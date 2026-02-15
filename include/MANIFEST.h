@@ -48,7 +48,7 @@
 // @DESCRIPTION:      Secret automatic sliding door that transitions players
 //                    from the Monkey Altar Room into the Cove. The door is
 //                    disguised as part of the room wall — players do not know
-//                    it exists until it opens. A BTS7960 dual H-bridge motor
+//                    it exists until it opens. An XY160D H-bridge motor
 //                    driver controls a DC motor that slides the door along a
 //                    track. Two mechanical limit switches (with external
 //                    pull-up resistors) define the open and closed positions.
@@ -139,9 +139,10 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 30000;        // @HEARTBEAT_
 // ============================================================================
 // @MANIFEST:PINS
 
-// ── Motor Driver (BTS7960 Dual H-Bridge) ────────────────────────────────────
-inline constexpr int RPWM_PIN = 2;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
-inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
+// ── Motor Driver (XY160D H-Bridge) ───────────────────────────────────────────
+inline constexpr int MOTOR_IN1 = 2;                               // @PIN:IN1    | XY160D IN1 — direction control A
+inline constexpr int MOTOR_IN2 = 5;                               // @PIN:IN2    | XY160D IN2 — direction control B
+inline constexpr int MOTOR_ENA = 4;                               // @PIN:ENA    | XY160D ENA — PWM speed control
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
 inline constexpr int LIMIT_OPEN   = 16;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
@@ -158,8 +159,7 @@ inline constexpr int LIMIT_CLOSED = 32;                           // @PIN:LIMIT_
 inline constexpr int MOTOR_SPEED = 150;                           // @MOTOR:SPEED | PWM duty 0-255 (150 ≈ 59%)
 
 // ── PWM Configuration ───────────────────────────────────────────────────────
-inline constexpr int PWM_CHANNEL_R = 0;                           // @PWM:CHANNEL_R  | LEDC channel for RPWM (open)
-inline constexpr int PWM_CHANNEL_L = 1;                           // @PWM:CHANNEL_L  | LEDC channel for LPWM (close)
+inline constexpr int PWM_CHANNEL   = 0;                           // @PWM:CHANNEL    | LEDC channel for ENA speed control
 inline constexpr int PWM_FREQ      = 5000;                        // @PWM:FREQ       | 5kHz PWM frequency
 inline constexpr int PWM_RESOLUTION = 8;                          // @PWM:RESOLUTION | 8-bit (0-255)
 
@@ -200,19 +200,18 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @MANIFEST:COMPONENTS
 //
-// @COMPONENT:  BTS7960 Dual H-Bridge Motor Driver
+// @COMPONENT:  XY160D H-Bridge Motor Driver
 //   @PURPOSE:  Controls the DC motor that slides the door along its track
-//   @DETAIL:   2-PWM interface (RPWM + LPWM). RPWM drives the open direction,
-//              LPWM drives the close direction. Only one is active at a time.
-//              R_EN and L_EN are tied to 3.3V (always enabled). Motor runs at
-//              59% duty (150/255) with smooth ramp-up and ramp-down for
-//              theatrical door movement. Unlike the Cytron MD13S (used on
-//              JungleDoor), the BTS7960 uses separate PWM pins for each
-//              direction instead of DIR + PWM.
+//   @DETAIL:   DIR + PWM interface (IN1/IN2 for direction, ENA for speed).
+//              IN1=HIGH + IN2=LOW drives the open direction, IN1=LOW +
+//              IN2=HIGH drives the close direction. ENA receives PWM for
+//              speed control. Motor runs at 59% duty (150/255) with smooth
+//              ramp-up for theatrical door movement. Opto-isolated inputs
+//              protect the ESP32 from motor noise.
 //
 // @COMPONENT:  DC Sliding Door Motor
 //   @PURPOSE:  Physically moves the door panel along a track
-//   @DETAIL:   Driven by BTS7960. Opens via RPWM, closes via LPWM.
+//   @DETAIL:   Driven by XY160D. Opens via IN1, closes via IN2.
 //              Total travel time approximately 4 seconds with ramping.
 //
 // @COMPONENT:  Magnetic Reed Switch (Open Position)
@@ -234,7 +233,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 //  ── PHYSICAL LOCATION ──────────────────────────────────────────────────────
 //
-// @LOCATION:  Hidden above the door frame. The ESP32 and BTS7960 motor driver
+// @LOCATION:  Hidden above the door frame. The ESP32 and XY160D motor driver
 //             are mounted in the space directly above the CoveDoor. Access
 //             from above.
 //
@@ -265,21 +264,21 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @OPERATION:OPEN
 //   Send "OPEN" to MermaidsTale/CoveDoor/command
-//   Motor ramps up over 0.5s via RPWM, runs at PWM 150 for 3s, ramps down
-//   over 0.5s. Publishes "OPENING" immediately, then "OPEN" when complete.
+//   Sets IN1=HIGH, IN2=LOW, ramps ENA PWM up over 0.5s to duty 150.
+//   Publishes "OPENING" immediately, then "OPEN" when complete.
 //   Stops early if open limit switch triggers.
-//   Falls back to 4-second timer if limit switch doesn't fire.
+//   Falls back to 8-second timer if limit switch doesn't fire.
 //
 // @OPERATION:CLOSE
 //   Send "CLOSE" to MermaidsTale/CoveDoor/command
-//   Same ramping profile as OPEN but via LPWM (reverse direction).
+//   Sets IN1=LOW, IN2=HIGH, ramps ENA PWM up over 0.5s to duty 150.
 //   Publishes "CLOSING" immediately, then "CLOSED" when complete.
 //   Stops early if closed limit switch triggers.
-//   Falls back to 4-second timer if limit switch doesn't fire.
+//   Falls back to 8-second timer if limit switch doesn't fire.
 //
 // @OPERATION:EMERGENCY_STOP
 //   Send "STOP" to MermaidsTale/CoveDoor/command
-//   Both RPWM and LPWM immediately set to 0 — no ramp-down.
+//   ENA immediately set to 0, IN1 and IN2 set LOW — no ramp-down.
 //   Publishes "STOPPED" on /status.
 //   Door remains in whatever position it stopped at.
 //
@@ -324,10 +323,11 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   health check responses from this device.
 //
 // @QUIRK:LEDC_API_VERSION
-//   The code uses the older ledcSetup()/ledcAttachPin() API, which is
-//   correct for the regular ESP32. The newer ledcAttach() API (used by
-//   JungleDoor) is an ESP32-S3/Arduino 3.x feature. Do not "modernize"
-//   this code to the newer API without verifying board compatibility.
+//   The code uses the older ledcSetup()/ledcAttachPin() API for the ENA
+//   PWM pin, which is correct for the regular ESP32. The newer
+//   ledcAttach() API (used by JungleDoor) is an ESP32-S3/Arduino 3.x
+//   feature. Do not "modernize" this code to the newer API without
+//   verifying board compatibility.
 //
 //  ── TROUBLESHOOTING LOG (2026-02-14) ───────────────────────────────────────
 //
@@ -340,15 +340,15 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   CAUSE: GPIO 5 is a strapping pin on the regular ESP32. It controls
 //   SDIO timing during the ROM bootloader's first microseconds — before
 //   any user code runs. When the screw terminal makes contact with GPIO 5
-//   (LPWM pin), it pulls the pin to an unexpected state during boot,
+//   (IN2 pin), it pulls the pin to an unexpected state during boot,
 //   causing the ESP32 to attempt flash reads at the wrong voltage (1.8V
 //   instead of 3.3V). This produces the 0xffffffff invalid headers.
-//   FIX: Move LPWM off GPIO 5 to a non-strapping pin. Strapping pins on
+//   FIX: Move IN2 off GPIO 5 to a non-strapping pin. Strapping pins on
 //   the regular ESP32 to AVOID for signals with external connections:
 //   GPIO 0, 2, 5, 12, 15. This does NOT affect the ESP32-S3 which has
 //   different strapping pins.
 //   NOTE: The code compiles and runs fine — this is purely a hardware
-//   boot-level issue. pinMode() and ledcAttachPin() work correctly on
+//   boot-level issue. pinMode() and digitalWrite() work correctly on
 //   GPIO 5 after boot. The problem is only during the first microseconds
 //   of power-on when the ROM bootloader reads strapping pin states.
 //
@@ -391,8 +391,9 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @MANIFEST:WIRING
 //
-//   ESP32 Pin 2  (RPWM) ──────── BTS7960 RPWM (forward/open PWM)
-//   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse/close PWM)
+//   ESP32 Pin 2  (IN1) ───────── XY160D IN1 (direction control A)
+//   ESP32 Pin 5  (IN2) ───────── XY160D IN2 (direction control B)
+//   ESP32 Pin 4  (ENA) ───────── XY160D ENA (PWM speed control)
 //
 //   ESP32 Pin 16 ──────────────── Magnetic Reed Switch (OPEN position)
 //                                 Closes to GND when magnet is nearby
@@ -402,11 +403,9 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
-//   BTS7960 R_EN ──────────────── 3.3V (always enabled)
-//   BTS7960 L_EN ──────────────── 3.3V (always enabled)
-//   BTS7960 VCC  ──────────────── 5V
-//   BTS7960 GND  ──────────────── GND
-//   BTS7960 MOTOR OUT ─────────── DC sliding door motor
+//   XY160D VCC  ───────────────── Motor power supply (12V/24V)
+//   XY160D GND  ───────────────── Common ground with ESP32
+//   XY160D MOTOR OUT ──────────── DC sliding door motor
 //
 //   ESP32 Power ───────────────── USB, hidden above the door frame
 //

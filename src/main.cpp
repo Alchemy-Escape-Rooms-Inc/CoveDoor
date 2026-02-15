@@ -1,14 +1,14 @@
 /*
  * ============================================
  * ALCHEMY ESCAPE ROOM - COVE SLIDING DOOR CONTROLLER
- * ESP32 VERSION WITH BTS7960 MOTOR DRIVER
+ * ESP32 VERSION WITH XY160D MOTOR DRIVER
  * ============================================
  *
  * Version: 1.0.0
  * Date: 2026-02-10
  *
  * Automatic Sliding Door System
- * ESP32-S3 + BTS7960 Dual H-Bridge Motor Driver
+ * ESP32 + XY160D H-Bridge Motor Driver
  *
  * WATCHTOWER PROTOCOL COMMANDS (respond on /command topic):
  *   PING         -> responds with "PONG"
@@ -33,12 +33,11 @@
  *   LIMIT_OPEN_CLEAR    -> Door moved away from open limit
  *   LIMIT_CLOSED_CLEAR  -> Door moved away from closed limit
  *
- * BTS7960 WIRING:
- *   RPWM -> GPIO2 (PWM for opening/forward)
- *   LPWM -> GPIO5 (PWM for closing/reverse)
- *   R_EN -> 3.3V (always enabled)
- *   L_EN -> 3.3V (always enabled)
- *   VCC  -> 5V
+ * XY160D WIRING:
+ *   IN1  -> GPIO2 (direction control A)
+ *   IN2  -> GPIO5 (direction control B)
+ *   ENA  -> GPIO4 (PWM speed control)
+ *   VCC  -> Motor power supply
  *   GND  -> GND
  *
  * ============================================
@@ -66,8 +65,9 @@ const int   MQTT_PORT     = manifest::MQTT_PORT;
 // ============================================
 // PIN DEFINITIONS — Sourced from MANIFEST.h
 // ============================================
-#define RPWM_PIN        manifest::RPWM_PIN
-#define LPWM_PIN        manifest::LPWM_PIN
+#define MOTOR_IN1       manifest::MOTOR_IN1
+#define MOTOR_IN2       manifest::MOTOR_IN2
+#define MOTOR_ENA       manifest::MOTOR_ENA
 #define LIMIT_OPEN      manifest::LIMIT_OPEN
 #define LIMIT_CLOSED    manifest::LIMIT_CLOSED
 
@@ -75,8 +75,7 @@ const int   MQTT_PORT     = manifest::MQTT_PORT;
 #define MOTOR_SPEED     manifest::MOTOR_SPEED
 
 // PWM Configuration — Sourced from MANIFEST.h
-#define PWM_CHANNEL_R   manifest::PWM_CHANNEL_R
-#define PWM_CHANNEL_L   manifest::PWM_CHANNEL_L
+#define PWM_CHANNEL     manifest::PWM_CHANNEL
 #define PWM_FREQ        manifest::PWM_FREQ
 #define PWM_RESOLUTION  manifest::PWM_RESOLUTION
 
@@ -158,7 +157,8 @@ void mqttLogf(const char* format, ...);
 void startOpening();
 void startClosing();
 void stopMotor();
-void setMotorSpeed(int openSpeed, int closeSpeed);
+void setMotorDirection(bool opening);
+void setMotorSpeed(int speed);
 void checkLimitSwitches();
 const char* getStateString(DoorState state);
 void publishLimitEvent(const char* event);
@@ -201,7 +201,7 @@ void setup() {
   Serial.println("\n");
   Serial.println("============================================");
   Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32");
-  Serial.println("   BTS7960 Dual H-Bridge Motor Driver");
+  Serial.println("   XY160D H-Bridge Motor Driver");
   Serial.println("============================================");
   Serial.print("Device Name: ");
   Serial.println(DEVICE_NAME);
@@ -230,18 +230,22 @@ void setup() {
   Serial.println(mqtt_topic_limit);
   Serial.println();
 
-  // Initialize BTS7960 motor control pins with PWM
-  ledcSetup(PWM_CHANNEL_R, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CHANNEL_L, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(RPWM_PIN, PWM_CHANNEL_R);
-  ledcAttachPin(LPWM_PIN, PWM_CHANNEL_L);
-  ledcWrite(PWM_CHANNEL_R, 0);
-  ledcWrite(PWM_CHANNEL_L, 0);
-  Serial.println("[INIT] BTS7960 motor pins configured (RPWM + LPWM with PWM)");
-  Serial.print("       RPWM: GPIO");
-  Serial.print(RPWM_PIN);
-  Serial.print(", LPWM: GPIO");
-  Serial.println(LPWM_PIN);
+  // Initialize XY160D motor control pins
+  // IN1 and IN2 are digital direction pins, ENA is PWM speed
+  pinMode(MOTOR_IN1, OUTPUT);
+  pinMode(MOTOR_IN2, OUTPUT);
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, LOW);
+  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(MOTOR_ENA, PWM_CHANNEL);
+  ledcWrite(PWM_CHANNEL, 0);
+  Serial.println("[INIT] XY160D motor pins configured (IN1 + IN2 + ENA PWM)");
+  Serial.print("       IN1: GPIO");
+  Serial.print(MOTOR_IN1);
+  Serial.print(", IN2: GPIO");
+  Serial.print(MOTOR_IN2);
+  Serial.print(", ENA: GPIO");
+  Serial.println(MOTOR_ENA);
 
   // Initialize limit switch pins with internal pullups
   pinMode(LIMIT_OPEN, INPUT_PULLUP);
@@ -349,11 +353,7 @@ void loop() {
         speed = MOTOR_SPEED;
       }
 
-      if (currentState == DOOR_OPENING) {
-        setMotorSpeed(speed, 0);  // RPWM for opening
-      } else {
-        setMotorSpeed(0, speed);  // LPWM for closing
-      }
+      setMotorSpeed(speed);  // Direction already set by startOpening/startClosing
     }
   }
 
@@ -595,14 +595,16 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     mqttLog("[TEST] Motor test starting...");
     send_status("TESTING");
 
-    mqttLog("[TEST] RPWM (open direction) full speed for 2s...");
-    setMotorSpeed(MOTOR_SPEED, 0);
+    mqttLog("[TEST] IN1 (open direction) full speed for 2s...");
+    setMotorDirection(true);  // open direction
+    setMotorSpeed(MOTOR_SPEED);
     delay(2000);
     stopMotor();
     delay(500);
 
-    mqttLog("[TEST] LPWM (close direction) full speed for 2s...");
-    setMotorSpeed(0, MOTOR_SPEED);
+    mqttLog("[TEST] IN2 (close direction) full speed for 2s...");
+    setMotorDirection(false);  // close direction
+    setMotorSpeed(MOTOR_SPEED);
     delay(2000);
     stopMotor();
 
@@ -638,13 +640,23 @@ void send_heartbeat() {
 }
 
 // ============================================
-// BTS7960 MOTOR CONTROL FUNCTIONS
+// XY160D MOTOR CONTROL FUNCTIONS
 // ============================================
-void setMotorSpeed(int openSpeed, int closeSpeed) {
-  // BTS7960: RPWM controls forward (open), LPWM controls reverse (close)
-  // Only one should be active at a time
-  ledcWrite(PWM_CHANNEL_R, openSpeed);
-  ledcWrite(PWM_CHANNEL_L, closeSpeed);
+
+// Set direction: true = open (IN1 HIGH, IN2 LOW), false = close (IN1 LOW, IN2 HIGH)
+void setMotorDirection(bool opening) {
+  if (opening) {
+    digitalWrite(MOTOR_IN1, HIGH);
+    digitalWrite(MOTOR_IN2, LOW);
+  } else {
+    digitalWrite(MOTOR_IN1, LOW);
+    digitalWrite(MOTOR_IN2, HIGH);
+  }
+}
+
+// Set motor speed via ENA PWM (0-255)
+void setMotorSpeed(int speed) {
+  ledcWrite(PWM_CHANNEL, speed);
 }
 
 void startOpening() {
@@ -655,10 +667,11 @@ void startOpening() {
     return;
   }
 
-  mqttLog("[MOTOR] Opening door (BTS7960 RPWM active)...");
+  mqttLog("[MOTOR] Opening door (XY160D IN1 active)...");
   currentState = DOOR_OPENING;
   motorStartTime = millis();
-  setMotorSpeed(0, 0);  // Start at 0, ramp will handle speed
+  setMotorDirection(true);   // Set direction first
+  setMotorSpeed(0);          // Start at 0, ramp will handle speed
 
   if (mqtt.connected()) {
     send_status("OPENING");
@@ -673,10 +686,11 @@ void startClosing() {
     return;
   }
 
-  mqttLog("[MOTOR] Closing door (BTS7960 LPWM active)...");
+  mqttLog("[MOTOR] Closing door (XY160D IN2 active)...");
   currentState = DOOR_CLOSING;
   motorStartTime = millis();
-  setMotorSpeed(0, 0);  // Start at 0, ramp will handle speed
+  setMotorDirection(false);  // Set direction first
+  setMotorSpeed(0);          // Start at 0, ramp will handle speed
 
   if (mqtt.connected()) {
     send_status("CLOSING");
@@ -684,8 +698,10 @@ void startClosing() {
 }
 
 void stopMotor() {
-  setMotorSpeed(0, 0);
-  mqttLog("[MOTOR] Motor stopped - Both PWM outputs set to 0");
+  setMotorSpeed(0);
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, LOW);
+  mqttLog("[MOTOR] Motor stopped - ENA=0, IN1=LOW, IN2=LOW");
 }
 
 // ============================================
