@@ -140,7 +140,7 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 30000;        // @HEARTBEAT_
 // @MANIFEST:PINS
 
 // ── Motor Driver (BTS7960 Dual H-Bridge) ────────────────────────────────────
-inline constexpr int RPWM_PIN = 4;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
+inline constexpr int RPWM_PIN = 2;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
 inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
@@ -391,7 +391,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @MANIFEST:WIRING
 //
-//   ESP32 Pin 4  (RPWM) ──────── BTS7960 RPWM (forward/open PWM)
+//   ESP32 Pin 2  (RPWM) ──────── BTS7960 RPWM (forward/open PWM)
 //   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse/close PWM)
 //
 //   ESP32 Pin 16 ──────────────── Magnetic Reed Switch (OPEN position)

@@ -34,7 +34,7 @@
  *   LIMIT_CLOSED_CLEAR  -> Door moved away from closed limit
  *
  * BTS7960 WIRING:
- *   RPWM -> GPIO4 (PWM for opening/forward)
+ *   RPWM -> GPIO2 (PWM for opening/forward)
  *   LPWM -> GPIO5 (PWM for closing/reverse)
  *   R_EN -> 3.3V (always enabled)
  *   L_EN -> 3.3V (always enabled)
