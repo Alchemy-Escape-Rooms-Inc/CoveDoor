@@ -35,3 +35,45 @@ Next steps:
   - Deploy: commit, push, compile, flash to installed ESP32.
   - Verify door opens/closes smoothly at the new speed.
   - Monitor /log topic for any [TIMEOUT] or [MQTT] truncation warnings.
+
+
+2026-04-14 — board/driver migration: ESP32-S3 + BTS7960
+---------------------------------------------------------
+During the deploy pipeline, the connected hardware turned out to be an
+ESP32-S3 with a BTS7960 driver, not the regular ESP32 + XY160D that the
+repo had been migrated to. User confirmed the field is correct and the
+repo was wrong. Reverted the firmware back to BTS7960 (RPWM/LPWM) and
+ported it to ESP32-S3 on Arduino core 3.x.
+
+Files modified:
+  - Code/src/main.cpp — rewritten for BTS7960 + ledcAttach(pin,...) API
+  - Code/include/MANIFEST.h — pin map, board, wiring, quirks, components
+  - Code/platformio.ini — board=esp32-s3-devkitc-1, unpinned platform,
+    kept -std=gnu++17
+
+Pin map (final, installed S3 board):
+  RPWM         = GPIO 2
+  LPWM         = GPIO 5
+  LIMIT_OPEN   = GPIO 16
+  LIMIT_CLOSED = GPIO 17   (was GPIO 32 — doesn't exist on S3)
+
+Preserved audit fixes from the earlier session:
+  - MOTOR_SPEED 180 (~71% duty)
+  - DOOR_TIMEOUT_MS 12000 (12s safety)
+  - HEARTBEAT_INTERVAL 300000 (WatchTower spec)
+  - No EMERGENCY_STOP enum value
+  - No "CLEAR" publish on /limit topic
+  - MQTT payload truncation warning
+
+Build + deploy:
+  - Compile: PASS (Flash 26.9% of 3.34MB, RAM 13.7%)
+  - Flash:   PASS on COM16 (CH343 USB-serial, ESP32-S3 QFN56 rev v0.2,
+             8MB flash, 8MB PSRAM detected)
+
+Known issues / notes:
+  - LIMIT_CLOSED physical wire must be on GPIO 17 on the S3 breakout.
+    If the field wire is still on an old pin, the closed-limit will
+    never trigger and the 12s safety timeout will catch every close.
+  - QUIRK:BOARD_HISTORY in MANIFEST.h now records that this prop has
+    bounced between boards/drivers; future editors beware.
+
