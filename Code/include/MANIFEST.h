@@ -145,7 +145,7 @@ inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM  
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
 inline constexpr int LIMIT_OPEN   = 16;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
-inline constexpr int LIMIT_CLOSED = 32;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
+inline constexpr int LIMIT_CLOSED = 17;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
 
 // @END:PINS
 
@@ -219,7 +219,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @COMPONENT:  Magnetic Reed Switch (Closed Position)
 //   @PURPOSE:  Detects when door has fully closed
-//   @DETAIL:   Pin 32, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
+//   @DETAIL:   Pin 17, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
 // @END:COMPONENTS
 
@@ -298,7 +298,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   This prop has bounced between boards and drivers. Current installed
 //   hardware: regular ESP32-DevKitC + BTS7960. A brief detour migrated the
 //   repo to XY160D and an ESP32-S3; both were reverted. Final pin assignment:
-//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 32.
+//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 17.
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -338,7 +338,8 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 // @QUIRK:GPIO33_AVOIDED
 //   An earlier iteration put LIMIT_CLOSED on GPIO 33 and hit a defective
 //   internal pull-up on that specific board (stuck at 0.55V). LIMIT_CLOSED
-//   is on GPIO 32 for this reason.
+//   is on GPIO 17 now (previously 32 on the regular ESP32). GPIO 17 is a
+//   safe non-strapping input pin with a working internal pull-up.
 //
 // @END:OPERATIONS
 
@@ -370,7 +371,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
-//   ESP32 Pin 32 ─────────────── Magnetic Reed Switch (CLOSED position)
+//   ESP32 Pin 17 ─────────────── Magnetic Reed Switch (CLOSED position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
