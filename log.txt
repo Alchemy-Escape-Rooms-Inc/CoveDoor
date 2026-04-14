@@ -1,0 +1,37 @@
+CoveDoor session log
+====================
+
+2026-04-14 — audit + speed/timeout tune
+----------------------------------------
+Files modified:
+  - Code/include/MANIFEST.h
+  - Code/src/main.cpp
+  - Code/platformio.ini
+
+Changes:
+  - MOTOR_SPEED: 150 -> 180 (~71% duty) — slightly faster door.
+  - DOOR_TIMEOUT_MS: 8000 -> 12000 — 12s safety timeout.
+  - HEARTBEAT_INTERVAL: 30000 -> 300000 — matches WatchTower 5-min spec.
+  - Removed unused EMERGENCY_STOP enum value and its getStateString case.
+  - Removed undocumented "CLEAR" publish on /limit topic during state
+    changes (not in the @LIMIT_EVENT list in MANIFEST.h).
+  - Added truncation warning log in mqtt_callback when payload >= 128 bytes.
+  - Fixed stale BTS7960 references in platformio.ini header and
+    @RESET:HARDWARE section of MANIFEST.h (now says XY160D).
+  - Updated all stale doc comments in MANIFEST.h to reflect new
+    180 duty and 12s timeout values.
+
+Known issues / notes:
+  - MOTOR_IN1 (GPIO 2) and MOTOR_IN2 (GPIO 5) are strapping pins on
+    the regular ESP32. User confirmed the installed board boots
+    reliably, so pins were left alone. If the board is ever
+    swapped and boot-loops return, the GPIO5_BOOT_CRASH quirk in
+    MANIFEST.h documents the fix.
+  - TEST_MOTOR command uses blocking delay(2000) — STOP will not
+    interrupt the 2s pulses. Acceptable for a maintenance command.
+  - No hardware watchdog timer (documented in QUIRK:NO_WATCHDOG).
+
+Next steps:
+  - Deploy: commit, push, compile, flash to installed ESP32.
+  - Verify door opens/closes smoothly at the new speed.
+  - Monitor /log topic for any [TIMEOUT] or [MQTT] truncation warnings.

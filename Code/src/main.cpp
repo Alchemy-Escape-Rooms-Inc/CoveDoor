@@ -102,8 +102,7 @@ enum DoorState {
   DOOR_OPEN,
   DOOR_OPENING,
   DOOR_CLOSING,
-  DOOR_STOPPED,
-  EMERGENCY_STOP
+  DOOR_STOPPED
 };
 
 DoorState currentState = DOOR_STOPPED;
@@ -364,8 +363,6 @@ void loop() {
 
     if (mqtt.connected()) {
       send_status(getStateString(currentState));
-      // Clear limit hit status on every state change
-      mqtt.publish(mqtt_topic_limit.c_str(), "CLEAR", false);
     }
   }
 
@@ -471,11 +468,16 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
   // Now safe to declare other variables
   char message[128];
+  bool truncated = false;
   if (length >= sizeof(message)) {
     length = sizeof(message) - 1;
+    truncated = true;
   }
   memcpy(message, payload, length);
   message[length] = '\0';
+  if (truncated) {
+    mqttLog("[MQTT] Warning: payload truncated to 127 bytes");
+  }
 
   // Trim whitespace and convert to uppercase
   char* msg = message;
@@ -776,7 +778,6 @@ const char* getStateString(DoorState state) {
     case DOOR_OPENING:    return "OPENING";
     case DOOR_CLOSING:    return "CLOSING";
     case DOOR_STOPPED:    return "STOPPED";
-    case EMERGENCY_STOP:  return "EMERGENCY";
     default:              return "UNKNOWN";
   }
 }

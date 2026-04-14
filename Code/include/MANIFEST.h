@@ -87,7 +87,7 @@ inline constexpr int         MQTT_PORT     = 1883;                // @BROKER_POR
 // MQTT Client ID: "CoveDoor" (matches DEVICE_NAME)
 
 // ── Heartbeat ───────────────────────────────────────────────────────────────
-inline constexpr unsigned long HEARTBEAT_INTERVAL = 30000;        // @HEARTBEAT_MS  (30 seconds)
+inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_MS  (5 minutes, per WatchTower spec)
 
 //  ── TOPIC MAP ──────────────────────────────────────────────────────────────
 //  Topics are built dynamically from DEVICE_NAME at runtime:
@@ -156,7 +156,7 @@ inline constexpr int LIMIT_CLOSED = 32;                           // @PIN:LIMIT_
 // ============================================================================
 // @MANIFEST:MOTOR
 
-inline constexpr int MOTOR_SPEED = 150;                           // @MOTOR:SPEED | PWM duty 0-255 (150 ≈ 59%)
+inline constexpr int MOTOR_SPEED = 180;                           // @MOTOR:SPEED | PWM duty 0-255 (180 ≈ 71%)
 
 // ── PWM Configuration ───────────────────────────────────────────────────────
 inline constexpr int PWM_CHANNEL   = 0;                           // @PWM:CHANNEL    | LEDC channel for ENA speed control
@@ -165,7 +165,7 @@ inline constexpr int PWM_RESOLUTION = 8;                          // @PWM:RESOLU
 
 // ── Door Movement Timing ────────────────────────────────────────────────────
 inline constexpr int DOOR_RAMP_UP_MS    = 500;                    // @DOOR:RAMP_UP    | 0.5s acceleration to full speed
-inline constexpr int DOOR_TIMEOUT_MS    = 8000;                   // @DOOR:TIMEOUT    | 8s safety timeout if limit switch not hit
+inline constexpr int DOOR_TIMEOUT_MS    = 12000;                  // @DOOR:TIMEOUT    | 12s safety timeout if limit switch not hit
 
 // @END:MOTOR
 
@@ -205,14 +205,14 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   @DETAIL:   DIR + PWM interface (IN1/IN2 for direction, ENA for speed).
 //              IN1=HIGH + IN2=LOW drives the open direction, IN1=LOW +
 //              IN2=HIGH drives the close direction. ENA receives PWM for
-//              speed control. Motor runs at 59% duty (150/255) with smooth
+//              speed control. Motor runs at 71% duty (180/255) with smooth
 //              ramp-up for theatrical door movement. Opto-isolated inputs
 //              protect the ESP32 from motor noise.
 //
 // @COMPONENT:  DC Sliding Door Motor
 //   @PURPOSE:  Physically moves the door panel along a track
 //   @DETAIL:   Driven by XY160D. Opens via IN1, closes via IN2.
-//              Total travel time approximately 4 seconds with ramping.
+//              Total travel time a few seconds with ramping; 12s safety timeout.
 //
 // @COMPONENT:  Magnetic Reed Switch (Open Position)
 //   @PURPOSE:  Detects when door has fully opened
@@ -255,7 +255,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   Use between game sessions to sync state with physical door position.
 //
 // @RESET:HARDWARE
-//   The ESP32 and BTS7960 are hidden above the door frame. Access from above,
+//   The ESP32 and XY160D are hidden above the door frame. Access from above,
 //   disconnect and reconnect power to the ESP32. After power-on, monitor
 //   MermaidsTale/CoveDoor/status for ONLINE message. The door will read its
 //   limit switches on boot to determine its current position.
@@ -264,17 +264,17 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @OPERATION:OPEN
 //   Send "OPEN" to MermaidsTale/CoveDoor/command
-//   Sets IN1=HIGH, IN2=LOW, ramps ENA PWM up over 0.5s to duty 150.
+//   Sets IN1=HIGH, IN2=LOW, ramps ENA PWM up over 0.5s to duty 180.
 //   Publishes "OPENING" immediately, then "OPEN" when complete.
 //   Stops early if open limit switch triggers.
-//   Falls back to 8-second timer if limit switch doesn't fire.
+//   Falls back to 12-second timer if limit switch doesn't fire.
 //
 // @OPERATION:CLOSE
 //   Send "CLOSE" to MermaidsTale/CoveDoor/command
-//   Sets IN1=LOW, IN2=HIGH, ramps ENA PWM up over 0.5s to duty 150.
+//   Sets IN1=LOW, IN2=HIGH, ramps ENA PWM up over 0.5s to duty 180.
 //   Publishes "CLOSING" immediately, then "CLOSED" when complete.
 //   Stops early if closed limit switch triggers.
-//   Falls back to 8-second timer if limit switch doesn't fire.
+//   Falls back to 12-second timer if limit switch doesn't fire.
 //
 // @OPERATION:EMERGENCY_STOP
 //   Send "STOP" to MermaidsTale/CoveDoor/command
@@ -310,9 +310,9 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   Consider adding esp_task_wdt for future versions.
 //
 // @QUIRK:TIMEOUT_BACKUP
-//   The 4-second movement timer serves as a backup timeout. The limit
+//   The 12-second movement timer serves as a backup timeout. The limit
 //   switches are the primary stop mechanism and are working reliably. If a
-//   limit switch fails to trigger within 4 seconds, the motor stops anyway
+//   limit switch fails to trigger within 12 seconds, the motor stops anyway
 //   and the firmware logs "[TIMEOUT] Door open/close timeout - no limit hit"
 //   on the /log topic. If you see timeout messages, check the limit switches.
 //
