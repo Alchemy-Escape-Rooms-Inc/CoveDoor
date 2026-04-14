@@ -57,7 +57,7 @@
 //                    deceleration for theatrical effect.
 //
 // @ROOM:             Monkey Altar Room (transitions to Cove)
-// @BOARD:            ESP32-S3-DevKitC-1 (N8R8)
+// @BOARD:            ESP32-DevKitC (regular ESP32)
 // @FRAMEWORK:        Arduino (PlatformIO)
 // @REPO:             https://github.com/Alchemy-Escape-Rooms-Inc/CoveSlidingDoor
 // @BUILD_STATUS:     INSTALLED
@@ -145,7 +145,7 @@ inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM  
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
 inline constexpr int LIMIT_OPEN   = 16;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
-inline constexpr int LIMIT_CLOSED = 17;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
+inline constexpr int LIMIT_CLOSED = 32;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
 
 // @END:PINS
 
@@ -158,7 +158,8 @@ inline constexpr int LIMIT_CLOSED = 17;                           // @PIN:LIMIT_
 inline constexpr int MOTOR_SPEED = 180;                           // @MOTOR:SPEED | PWM duty 0-255 (180 ≈ 71%)
 
 // ── PWM Configuration ───────────────────────────────────────────────────────
-// Arduino core 3.x ledcAttach() API auto-assigns LEDC channels by pin.
+inline constexpr int PWM_CHANNEL_R = 0;                           // @PWM:CHANNEL_R  | LEDC channel for RPWM (open)
+inline constexpr int PWM_CHANNEL_L = 1;                           // @PWM:CHANNEL_L  | LEDC channel for LPWM (close)
 inline constexpr int PWM_FREQ      = 5000;                        // @PWM:FREQ       | 5kHz PWM frequency
 inline constexpr int PWM_RESOLUTION = 8;                          // @PWM:RESOLUTION | 8-bit (0-255)
 
@@ -218,7 +219,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @COMPONENT:  Magnetic Reed Switch (Closed Position)
 //   @PURPOSE:  Detects when door has fully closed
-//   @DETAIL:   Pin 17, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
+//   @DETAIL:   Pin 32, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
 // @END:COMPONENTS
 
@@ -231,7 +232,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 //  ── PHYSICAL LOCATION ──────────────────────────────────────────────────────
 //
-// @LOCATION:  Hidden above the door frame. The ESP32-S3 and BTS7960 motor
+// @LOCATION:  Hidden above the door frame. The ESP32 and BTS7960 motor
 //             driver are mounted in the space directly above the CoveDoor.
 //             Access from above.
 //
@@ -253,7 +254,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   Use between game sessions to sync state with physical door position.
 //
 // @RESET:HARDWARE
-//   The ESP32-S3 and BTS7960 are hidden above the door frame. Access from above,
+//   The ESP32 and BTS7960 are hidden above the door frame. Access from above,
 //   disconnect and reconnect power to the ESP32. After power-on, monitor
 //   MermaidsTale/CoveDoor/status for ONLINE message. The door will read its
 //   limit switches on boot to determine its current position.
@@ -295,10 +296,9 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @QUIRK:BOARD_HISTORY
 //   This prop has bounced between boards and drivers. Current installed
-//   hardware: ESP32-S3-DevKitC-1 (N8R8) + BTS7960. Earlier iterations used a
-//   regular ESP32 and/or an XY160D; the repo briefly targeted regular ESP32
-//   + XY160D but was never deployed that way. Final pin assignment:
-//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 17.
+//   hardware: regular ESP32-DevKitC + BTS7960. A brief detour migrated the
+//   repo to XY160D and an ESP32-S3; both were reverted. Final pin assignment:
+//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 32.
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -320,22 +320,25 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   health check responses from this device.
 //
 // @QUIRK:LEDC_API_VERSION
-//   This firmware targets ESP32-S3 on Arduino core 3.x and uses the new
-//   ledcAttach(pin, freq, resolution) API — no explicit LEDC channel
-//   numbers. ledcWrite() takes the pin, not a channel. Do not "revert" to
-//   the old ledcSetup()/ledcAttachPin() API without also pinning the
-//   PlatformIO platform back to a 2.x core.
+//   This firmware targets regular ESP32 on Arduino core 2.x and uses the
+//   older ledcSetup(channel, freq, res) + ledcAttachPin(pin, channel) +
+//   ledcWrite(channel, duty) API. platformio.ini pins the platform to
+//   espressif32@6.9.0 for this reason — do not bump without migrating
+//   the PWM calls to the core 3.x ledcAttach()/ledcWrite(pin,...) API.
 //
 //  ── TROUBLESHOOTING LOG (2026-02-14) ───────────────────────────────────────
 //
-// @QUIRK:HISTORICAL_STRAPPING_ISSUES
-//   On the previous regular ESP32 board, GPIO 5 was a strapping pin and
-//   caused boot loops when wired to the BTS7960 LPWM (visible symptom:
-//   "invalid header: 0xffffffff" from the ROM bootloader). The ESP32-S3
-//   has a different strapping pin layout — GPIO 5 is safe for output on
-//   the S3, so LPWM stays on GPIO 5. That old board also had a defective
-//   GPIO 33 internal pull-up, which is why LIMIT_CLOSED was moved. On
-//   the S3, GPIO 33 doesn't exist at all, so LIMIT_CLOSED is on GPIO 17.
+// @QUIRK:STRAPPING_PINS
+//   On the regular ESP32, GPIO 0, 2, 5, 12, and 15 are strapping pins.
+//   LPWM is on GPIO 5 here and RPWM is on GPIO 2 — both strapping pins.
+//   The installed board has booted reliably with this wiring, but if a
+//   replacement board boot-loops with "invalid header: 0xffffffff",
+//   move LPWM and/or RPWM to non-strapping pins (e.g. GPIO 25/26).
+//
+// @QUIRK:GPIO33_AVOIDED
+//   An earlier iteration put LIMIT_CLOSED on GPIO 33 and hit a defective
+//   internal pull-up on that specific board (stuck at 0.55V). LIMIT_CLOSED
+//   is on GPIO 32 for this reason.
 //
 // @END:OPERATIONS
 
@@ -358,24 +361,24 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @MANIFEST:WIRING
 //
-//   ESP32-S3 Pin 2  (RPWM) ─── BTS7960 RPWM (forward / open PWM)
-//   ESP32-S3 Pin 5  (LPWM) ─── BTS7960 LPWM (reverse / close PWM)
+//   ESP32 Pin 2  (RPWM) ──────── BTS7960 RPWM (forward / open PWM)
+//   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse / close PWM)
 //   3.3V             ─────────── BTS7960 R_EN (always enabled)
 //   3.3V             ─────────── BTS7960 L_EN (always enabled)
 //
-//   ESP32-S3 Pin 16 ──────────── Magnetic Reed Switch (OPEN position)
+//   ESP32 Pin 16 ─────────────── Magnetic Reed Switch (OPEN position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
-//   ESP32-S3 Pin 17 ──────────── Magnetic Reed Switch (CLOSED position)
+//   ESP32 Pin 32 ─────────────── Magnetic Reed Switch (CLOSED position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
 //   BTS7960 VCC  ─────────────── Motor power supply (12V/24V)
-//   BTS7960 GND  ─────────────── Common ground with ESP32-S3
+//   BTS7960 GND  ─────────────── Common ground with ESP32
 //   BTS7960 M+/M- ────────────── DC sliding door motor
 //
-//   ESP32-S3 Power ──────────── USB, hidden above the door frame
+//   ESP32 Power ──────────────── USB, hidden above the door frame
 //
 //   Physical Location: Hidden above the door frame, accessible from above
 //

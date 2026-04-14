@@ -77,3 +77,45 @@ Known issues / notes:
   - QUIRK:BOARD_HISTORY in MANIFEST.h now records that this prop has
     bounced between boards/drivers; future editors beware.
 
+
+2026-04-14 — reverted to regular ESP32 + BTS7960
+--------------------------------------------------
+User decided to revert the hardware back to regular ESP32 + BTS7960
+(the pin map from commit 5c42e5a) and re-wire accordingly. Firmware
+updated to match.
+
+Files modified:
+  - Code/src/main.cpp — switched back to ledcSetup/ledcAttachPin
+    (Arduino core 2.x API), board header text back to "ESP32"
+  - Code/include/MANIFEST.h — @BOARD back to ESP32-DevKitC, PWM channel
+    constants restored, LIMIT_CLOSED=GPIO 32, wiring/quirks reverted
+  - Code/platformio.ini — board=esp32dev, platform=espressif32@6.9.0
+    (pinned for Arduino core 2.x ledcSetup API)
+
+Pin map (final, installed regular ESP32):
+  RPWM         = GPIO 2
+  LPWM         = GPIO 5
+  LIMIT_OPEN   = GPIO 16
+  LIMIT_CLOSED = GPIO 32
+
+Preserved audit fixes:
+  - MOTOR_SPEED 180, DOOR_TIMEOUT_MS 12000, HEARTBEAT_INTERVAL 300000
+  - No EMERGENCY_STOP enum, no /limit CLEAR publish
+  - MQTT payload truncation warning
+
+Build + deploy:
+  - Compile: PASS (Flash 58.2%, RAM 13.8%)
+  - Flash:   SKIPPED — CP210x COM5 on this PC returns Access Denied
+             even with the driver reporting ProblemCode 0. No obvious
+             process holding the port (Arduino IDE, pio monitor, PuTTY
+             all absent). Likely a stale Windows USB handle; suggested
+             workarounds: disable/re-enable in Device Manager, try a
+             different USB port, or reboot. Firmware is committed and
+             ready to flash manually later.
+
+Next steps:
+  - Flash firmware.bin to the regular ESP32 manually once the port
+    cooperates (path: Code/.pio/build/esp32/firmware.bin).
+  - Send PING on MermaidsTale/CoveDoor/command to confirm PONG.
+  - Send TEST_MOTOR to verify RPWM and LPWM both drive the motor.
+

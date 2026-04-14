@@ -1,10 +1,10 @@
 /*
  * ============================================
  * ALCHEMY ESCAPE ROOM - COVE SLIDING DOOR CONTROLLER
- * ESP32-S3 + BTS7960 Dual H-Bridge Motor Driver
+ * ESP32 + BTS7960 Dual H-Bridge Motor Driver
  * ============================================
  *
- * Uses Arduino ESP32 core 3.x ledcAttach() API.
+ * Uses Arduino ESP32 core 2.x ledcSetup/ledcAttachPin API.
  *
  * MQTT TOPICS:
  *   Subscribe: MermaidsTale/CoveDoor/command
@@ -42,6 +42,8 @@ const int   MQTT_PORT     = manifest::MQTT_PORT;
 
 #define MOTOR_SPEED     manifest::MOTOR_SPEED
 
+#define PWM_CHANNEL_R   manifest::PWM_CHANNEL_R
+#define PWM_CHANNEL_L   manifest::PWM_CHANNEL_L
 #define PWM_FREQ        manifest::PWM_FREQ
 #define PWM_RESOLUTION  manifest::PWM_RESOLUTION
 
@@ -136,7 +138,7 @@ void setup() {
   delay(1000);
 
   Serial.println("\n============================================");
-  Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32-S3");
+  Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32");
   Serial.println("   BTS7960 Dual H-Bridge Motor Driver");
   Serial.println("============================================");
   Serial.print("Device Name: ");
@@ -154,11 +156,13 @@ void setup() {
   mqtt_topic_log     = "MermaidsTale/" + String(DEVICE_NAME) + "/log";
   mqtt_topic_limit   = "MermaidsTale/" + String(DEVICE_NAME) + "/limit";
 
-  // BTS7960 PWM outputs — Arduino core 3.x ledcAttach API
-  ledcAttach(RPWM_PIN, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttach(LPWM_PIN, PWM_FREQ, PWM_RESOLUTION);
-  ledcWrite(RPWM_PIN, 0);
-  ledcWrite(LPWM_PIN, 0);
+  // BTS7960 PWM outputs — Arduino core 2.x ledcSetup/ledcAttachPin API
+  ledcSetup(PWM_CHANNEL_R, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(PWM_CHANNEL_L, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(RPWM_PIN, PWM_CHANNEL_R);
+  ledcAttachPin(LPWM_PIN, PWM_CHANNEL_L);
+  ledcWrite(PWM_CHANNEL_R, 0);
+  ledcWrite(PWM_CHANNEL_L, 0);
   Serial.print("[INIT] BTS7960 configured — RPWM: GPIO");
   Serial.print(RPWM_PIN);
   Serial.print(", LPWM: GPIO");
@@ -500,8 +504,8 @@ void send_heartbeat() {
 void setMotorSpeed(int openSpeed, int closeSpeed) {
   // RPWM drives forward (open); LPWM drives reverse (close).
   // Only one should be non-zero at a time.
-  ledcWrite(RPWM_PIN, openSpeed);
-  ledcWrite(LPWM_PIN, closeSpeed);
+  ledcWrite(PWM_CHANNEL_R, openSpeed);
+  ledcWrite(PWM_CHANNEL_L, closeSpeed);
 }
 
 void startOpening() {
