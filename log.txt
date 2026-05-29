@@ -1,6 +1,23 @@
 CoveDoor session log
 ====================
 
+2026-05-29 — speed up the door
+----------------------------------------
+Files modified:
+  - Code/include/MANIFEST.h
+
+Changes:
+  - MOTOR_SPEED: 180 -> 220 (~86% duty) — faster door per user request.
+  - Updated COMPONENTS doc comment ("71% / 180/255" -> "86% / 220/255")
+    to keep the Grimoire docs consistent with the new value.
+
+Notes:
+  - MANIFEST.h is the single source of truth; main.cpp already reads
+    manifest::MOTOR_SPEED, so no code change needed.
+  - Ramp-up (DOOR_RAMP_UP_MS = 500) and 12s timeout left unchanged.
+  - NOT yet compiled/flashed — needs PlatformIO build + upload to the
+    installed ESP32 above the door frame for the change to take effect.
+
 2026-04-14 — audit + speed/timeout tune
 ----------------------------------------
 Files modified:

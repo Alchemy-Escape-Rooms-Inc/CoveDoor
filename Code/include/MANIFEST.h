@@ -155,7 +155,7 @@ inline constexpr int LIMIT_CLOSED = 17;                           // @PIN:LIMIT_
 // ============================================================================
 // @MANIFEST:MOTOR
 
-inline constexpr int MOTOR_SPEED = 180;                           // @MOTOR:SPEED | PWM duty 0-255 (180 ≈ 71%)
+inline constexpr int MOTOR_SPEED = 220;                           // @MOTOR:SPEED | PWM duty 0-255 (220 ≈ 86%)
 
 // ── PWM Configuration ───────────────────────────────────────────────────────
 inline constexpr int PWM_CHANNEL_R = 0;                           // @PWM:CHANNEL_R  | LEDC channel for RPWM (open)
@@ -205,8 +205,8 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   @DETAIL:   Dual PWM interface. RPWM drives the forward/open direction,
 //              LPWM drives the reverse/close direction. Only one PWM output
 //              is active at a time. R_EN and L_EN are tied to 3.3V so both
-//              half-bridges are always enabled. Motor runs at 71% duty
-//              (180/255) with smooth ramp-up for theatrical door movement.
+//              half-bridges are always enabled. Motor runs at 86% duty
+//              (220/255) with smooth ramp-up for theatrical door movement.
 //
 // @COMPONENT:  DC Sliding Door Motor
 //   @PURPOSE:  Physically moves the door panel along a track
