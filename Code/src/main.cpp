@@ -327,7 +327,12 @@ void mqtt_reconnect() {
   Serial.print(MQTT_PORT);
   Serial.print("...");
 
-  if (mqtt.connect(DEVICE_NAME)) {
+  // Unique client ID per boot: a second board flashed with this firmware
+  // (or any client reusing the bare device name) would otherwise fight us
+  // for the session — the broker kicks the older connection on every
+  // connect, knocking the real door offline (seen live 2026-07-12).
+  String clientId = String(DEVICE_NAME) + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+  if (mqtt.connect(clientId.c_str())) {
     Serial.println(" Connected!");
     mqtt.subscribe(mqtt_topic_command.c_str());
     send_status("ONLINE");

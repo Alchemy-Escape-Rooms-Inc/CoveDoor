@@ -69,7 +69,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.0.0";         // @FIRMWARE_VERSION
+inline constexpr const char* FIRMWARE_VERSION  = "1.1.0";         // @FIRMWARE_VERSION
 
 
 // ============================================================================
@@ -84,7 +84,8 @@ inline constexpr const char* WIFI_PASSWORD = "VoodooVacation5601"; // @WIFI_PASS
 // ── MQTT Broker ─────────────────────────────────────────────────────────────
 inline constexpr const char* MQTT_SERVER   = "10.1.10.115";       // @BROKER_IP
 inline constexpr int         MQTT_PORT     = 1883;                // @BROKER_PORT
-// MQTT Client ID: "CoveDoor" (matches DEVICE_NAME)
+// MQTT Client ID: "CoveDoor-<efuse MAC suffix>" (unique per board; prevents
+// a duplicate-ID kick war if a second board runs this firmware)
 
 // ── Heartbeat ───────────────────────────────────────────────────────────────
 inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_MS  (5 minutes, per WatchTower spec)
