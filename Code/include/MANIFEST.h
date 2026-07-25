@@ -69,7 +69,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.1.0";         // @FIRMWARE_VERSION
+inline constexpr const char* FIRMWARE_VERSION  = "1.2.0";         // @FIRMWARE_VERSION
 
 
 // ============================================================================
@@ -318,7 +318,10 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   PONG and STATUS responses are published on the /command topic, not
 //   /status. This is different from JungleDoor (which publishes PONG on
 //   /status). WatchTower System Checker should listen on /command for
-//   health check responses from this device.
+//   health check responses from this device. Since v1.2.0 the firmware
+//   silently ignores its own replies arriving back on /command (PONG, OK,
+//   empty, or any '|' diagnostics string) so commands no longer bounce
+//   junk "Received"/"Unknown command" lines onto /log.
 //
 // @QUIRK:LEDC_API_VERSION
 //   This firmware targets regular ESP32 on Arduino core 2.x and uses the

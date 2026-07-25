@@ -89,7 +89,6 @@ unsigned long motorStartTime = 0;
 const unsigned long HEARTBEAT_INTERVAL = manifest::HEARTBEAT_INTERVAL;
 const unsigned long WIFI_CHECK_INTERVAL = manifest::WIFI_CHECK_INTERVAL;
 const unsigned long MQTT_RECONNECT_INTERVAL = manifest::MQTT_RECONNECT_INTERVAL;
-bool systemReady = false;
 
 char mqttLogBuffer[256];
 
@@ -205,7 +204,6 @@ void setup() {
   setup_mqtt();
 
   bootTime = millis();
-  systemReady = true;
 
   if (mqtt.connected()) {
     send_status("ONLINE");
@@ -373,11 +371,19 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     *p = toupper(*p);
   }
 
-  mqttLogf("[MQTT] Received on %s: %s", topicBuf, msg);
-
   if (strcmp(topicBuf, mqtt_topic_command.c_str()) != 0) {
     return;
   }
+
+  // Our own PONG/OK/STATUS replies arrive back on /command (we subscribe
+  // to it). Ignore them silently so each command doesn't bounce a junk
+  // "Received"/"Unknown command" pair onto /log.
+  if (strcmp(msg, "PONG") == 0 || strcmp(msg, "OK") == 0 || strlen(msg) == 0
+      || strchr(msg, '|') != NULL) {
+    return;
+  }
+
+  mqttLogf("[MQTT] Received on %s: %s", topicBuf, msg);
 
   if (strcmp(msg, "PING") == 0) {
     mqtt.publish(mqtt_topic_command.c_str(), "PONG");
@@ -461,16 +467,24 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     mqttLog("[TEST] Motor test starting...");
     send_status("TESTING");
 
-    mqttLog("[TEST] RPWM (open direction) full speed for 2s...");
-    setMotorSpeed(MOTOR_SPEED, 0);
-    delay(2000);
-    stopMotor();
-    delay(500);
+    if (debouncedLimitOpen) {
+      mqttLog("[TEST] Skipping open direction - already at OPEN limit");
+    } else {
+      mqttLog("[TEST] RPWM (open direction) full speed for 2s...");
+      setMotorSpeed(MOTOR_SPEED, 0);
+      delay(2000);
+      stopMotor();
+      delay(500);
+    }
 
-    mqttLog("[TEST] LPWM (close direction) full speed for 2s...");
-    setMotorSpeed(0, MOTOR_SPEED);
-    delay(2000);
-    stopMotor();
+    if (debouncedLimitClosed) {
+      mqttLog("[TEST] Skipping close direction - already at CLOSED limit");
+    } else {
+      mqttLog("[TEST] LPWM (close direction) full speed for 2s...");
+      setMotorSpeed(0, MOTOR_SPEED);
+      delay(2000);
+      stopMotor();
+    }
 
     mqttLog("[TEST] Motor test complete");
     currentState = DOOR_STOPPED;

@@ -15,8 +15,16 @@ Notes:
   - MANIFEST.h is the single source of truth; main.cpp already reads
     manifest::MOTOR_SPEED, so no code change needed.
   - Ramp-up (DOOR_RAMP_UP_MS = 500) and 12s timeout left unchanged.
-  - NOT yet compiled/flashed — needs PlatformIO build + upload to the
-    installed ESP32 above the door frame for the change to take effect.
+  - Committed 6181802 and pushed to origin/master.
+  - FLASHED to the installed ESP32 (ESP32-D0WD-V3, MAC d4:e9:f4:65:3e:48)
+    on COM4. Compile clean (Flash 58.2%, RAM 13.8%); all 4 images
+    written + hash-verified.
+  - Flashing quirk: esptool auto-reset failed repeatedly with
+    "Wrong boot mode detected (0x13)". Had to hold BOOT manually and
+    flash with esptool --before no_reset. Likely the GPIO2/GPIO5
+    strapping pins + BTS7960 load interfering with download mode.
+    For next flash: hold BOOT, tap EN, keep holding BOOT, then run
+    esptool with --before no_reset.
 
 2026-04-14 — audit + speed/timeout tune
 ----------------------------------------
