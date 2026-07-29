@@ -52,6 +52,19 @@ const int   MQTT_PORT     = manifest::MQTT_PORT;
 #define DOOR_RAMP_UP_MS     manifest::DOOR_RAMP_UP_MS
 #define DOOR_TIMEOUT_MS     manifest::DOOR_TIMEOUT_MS
 
+#define TEST_PULSE_MS       manifest::TEST_PULSE_MS
+#define TEST_PAUSE_MS       manifest::TEST_PAUSE_MS
+
+#define SERIAL_BAUD         manifest::SERIAL_BAUD
+#define BOOT_SETTLE_MS      manifest::BOOT_SETTLE_MS
+#define LOOP_TICK_MS        manifest::LOOP_TICK_MS
+#define RESET_FLUSH_DELAY_MS manifest::RESET_FLUSH_DELAY_MS
+
+#define MQTT_BUFFER_SIZE    manifest::MQTT_BUFFER_SIZE
+#define WIFI_CONNECT_ATTEMPTS manifest::WIFI_CONNECT_ATTEMPTS
+#define WIFI_ATTEMPT_DELAY_MS manifest::WIFI_ATTEMPT_DELAY_MS
+#define MQTT_TOPIC_PREFIX   manifest::MQTT_TOPIC_PREFIX
+
 String mqtt_topic_command;
 String mqtt_topic_status;
 String mqtt_topic_log;
@@ -105,6 +118,7 @@ void mqttLogf(const char* format, ...);
 void startOpening();
 void startClosing();
 void stopMotor();
+void runTestPulse(bool openDirection);
 void setMotorSpeed(int openSpeed, int closeSpeed);
 void checkLimitSwitches();
 const char* getStateString(DoorState state);
@@ -133,8 +147,8 @@ void publishLimitEvent(const char* event) {
 }
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
+  Serial.begin(SERIAL_BAUD);
+  delay(BOOT_SETTLE_MS);
 
   Serial.println("\n============================================");
   Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32");
@@ -150,10 +164,10 @@ void setup() {
   Serial.println(__TIME__);
   Serial.println("============================================\n");
 
-  mqtt_topic_command = "MermaidsTale/" + String(DEVICE_NAME) + "/command";
-  mqtt_topic_status  = "MermaidsTale/" + String(DEVICE_NAME) + "/status";
-  mqtt_topic_log     = "MermaidsTale/" + String(DEVICE_NAME) + "/log";
-  mqtt_topic_limit   = "MermaidsTale/" + String(DEVICE_NAME) + "/limit";
+  mqtt_topic_command = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/command";
+  mqtt_topic_status  = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/status";
+  mqtt_topic_log     = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/log";
+  mqtt_topic_limit   = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/limit";
 
   // BTS7960 PWM outputs — Arduino core 2.x ledcSetup/ledcAttachPin API
   ledcSetup(PWM_CHANNEL_R, PWM_FREQ, PWM_RESOLUTION);
@@ -206,7 +220,7 @@ void setup() {
   bootTime = millis();
 
   if (mqtt.connected()) {
-    send_status("ONLINE");
+    // ONLINE was already published by mqtt_reconnect() during setup_mqtt()
     mqttLogf("[READY] System initialized - State: %s", getStateString(currentState));
   }
 
@@ -233,7 +247,7 @@ void loop() {
       mqttLogf("[TIMEOUT] Door %s safety timeout - no limit hit",
                currentState == DOOR_OPENING ? "open" : "close");
       currentState = DOOR_STOPPED;
-      send_status("STOPPED");
+      // /status "STOPPED" is published by the state-change block below
     } else {
       int speed = 0;
       if (elapsed < DOOR_RAMP_UP_MS) {
@@ -259,7 +273,7 @@ void loop() {
     }
   }
 
-  delay(10);
+  delay(LOOP_TICK_MS);
 }
 
 void setup_wifi() {
@@ -270,8 +284,8 @@ void setup_wifi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-    delay(500);
+  while (WiFi.status() != WL_CONNECTED && attempts < WIFI_CONNECT_ATTEMPTS) {
+    delay(WIFI_ATTEMPT_DELAY_MS);
     Serial.print(".");
     attempts++;
   }
@@ -306,7 +320,7 @@ void check_connections() {
 void setup_mqtt() {
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
   mqtt.setCallback(mqtt_callback);
-  mqtt.setBufferSize(512);
+  mqtt.setBufferSize(MQTT_BUFFER_SIZE);
 
   if (WiFi.status() == WL_CONNECTED) {
     mqtt_reconnect();
@@ -410,7 +424,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     mqtt.publish(mqtt_topic_command.c_str(), "OK");
     mqttLog("[CMD] RESET -> Rebooting...");
     stopMotor();
-    delay(100);
+    delay(RESET_FLUSH_DELAY_MS);
     ESP.restart();
     return;
   }
@@ -459,7 +473,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     mqttLog("[CMD] STOP command via MQTT");
     stopMotor();
     currentState = DOOR_STOPPED;
-    send_status("STOPPED");
+    // /status "STOPPED" is published by the loop() state-change block
     return;
   }
 
@@ -470,25 +484,34 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     if (debouncedLimitOpen) {
       mqttLog("[TEST] Skipping open direction - already at OPEN limit");
     } else {
-      mqttLog("[TEST] RPWM (open direction) full speed for 2s...");
-      setMotorSpeed(MOTOR_SPEED, 0);
-      delay(2000);
-      stopMotor();
-      delay(500);
+      mqttLog("[TEST] RPWM (open direction) ramped pulse...");
+      runTestPulse(true);
+      delay(TEST_PAUSE_MS);
     }
 
     if (debouncedLimitClosed) {
       mqttLog("[TEST] Skipping close direction - already at CLOSED limit");
     } else {
-      mqttLog("[TEST] LPWM (close direction) full speed for 2s...");
-      setMotorSpeed(0, MOTOR_SPEED);
-      delay(2000);
-      stopMotor();
+      mqttLog("[TEST] LPWM (close direction) ramped pulse...");
+      runTestPulse(false);
     }
 
     mqttLog("[TEST] Motor test complete");
-    currentState = DOOR_STOPPED;
-    send_status("STOPPED");
+
+    // Sync state to physical position (a pulse may have parked us on a limit)
+    if (debouncedLimitClosed) {
+      currentState = DOOR_CLOSED;
+    } else if (debouncedLimitOpen) {
+      currentState = DOOR_OPEN;
+    } else {
+      currentState = DOOR_STOPPED;
+    }
+
+    if (currentState == previousState) {
+      // No transition for the loop() block to announce — refresh /status
+      // so WatchTower doesn't stay stuck on TESTING
+      send_status(getStateString(currentState));
+    }
     return;
   }
 
@@ -539,10 +562,7 @@ void startOpening() {
   currentState = DOOR_OPENING;
   motorStartTime = millis();
   setMotorSpeed(0, 0);
-
-  if (mqtt.connected()) {
-    send_status("OPENING");
-  }
+  // /status "OPENING" is published by the loop() state-change block
 }
 
 void startClosing() {
@@ -557,15 +577,42 @@ void startClosing() {
   currentState = DOOR_CLOSING;
   motorStartTime = millis();
   setMotorSpeed(0, 0);
-
-  if (mqtt.connected()) {
-    send_status("CLOSING");
-  }
+  // /status "CLOSING" is published by the loop() state-change block
 }
 
 void stopMotor() {
   setMotorSpeed(0, 0);
   mqttLog("[MOTOR] Motor stopped - RPWM=0, LPWM=0");
+}
+
+// Limit-aware TEST_MOTOR pulse: ramps up like a normal move and watches the
+// limit switches every tick so a mid-travel test can't drive the door into
+// an end stop (the raw read cuts response to ~one tick; debounce would add
+// 150ms of stall against the printed pinion).
+void runTestPulse(bool openDirection) {
+  unsigned long start = millis();
+  while (millis() - start < TEST_PULSE_MS) {
+    checkLimitSwitches();
+    if (openDirection && (rawLimitOpen || debouncedLimitOpen)) {
+      mqttLog("[TEST] OPEN limit reached - pulse stopped early");
+      break;
+    }
+    if (!openDirection && (rawLimitClosed || debouncedLimitClosed)) {
+      mqttLog("[TEST] CLOSED limit reached - pulse stopped early");
+      break;
+    }
+    unsigned long elapsed = millis() - start;
+    int speed = (elapsed < DOOR_RAMP_UP_MS)
+                  ? (int)map(elapsed, 0, DOOR_RAMP_UP_MS, 0, MOTOR_SPEED)
+                  : MOTOR_SPEED;
+    if (openDirection) {
+      setMotorSpeed(speed, 0);
+    } else {
+      setMotorSpeed(0, speed);
+    }
+    delay(LOOP_TICK_MS);
+  }
+  stopMotor();
 }
 
 void checkLimitSwitches() {
@@ -610,6 +657,10 @@ void checkLimitSwitches() {
     }
   }
 
+  // Deliberate belt-and-suspenders: the transition blocks above already
+  // stop the motor on a limit hit, and every code path that starts motion
+  // refuses when already at the limit — so this is normally unreachable.
+  // Kept anyway as a last-line safety net for a motorized door.
   if (currentState == DOOR_OPENING && debouncedLimitOpen) {
     stopMotor();
     currentState = DOOR_OPEN;

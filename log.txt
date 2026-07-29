@@ -173,3 +173,31 @@ UI: N/A.
 
 Next steps: user to pick fixes; top candidate = limit-aware TEST_MOTOR
 pulse loop (check limits every ~10ms during pulse).
+
+--- 2026-07-29 (cont.) — FIX ALL audit findings → v1.3.0 ---
+main.cpp:
+  - TEST_MOTOR now limit-aware DURING pulses: new runTestPulse() ramps up
+    like a normal move, polls both switches every 10ms (raw read = ~1-tick
+    stop), max 2s per direction; ends by syncing state to physical
+    position and refreshing /status (no more stuck-on-TESTING).
+  - Deduped /status publishes: loop() state-change block is now the single
+    publisher for state transitions (removed direct sends in STOP handler,
+    timeout path, startOpening/startClosing, TEST_MOTOR tail, and the
+    second ONLINE in setup). ALREADY_OPEN/ALREADY_CLOSED/TESTING unchanged.
+  - All magic numbers moved to MANIFEST.h per its Rule 5: SERIAL_BAUD,
+    BOOT_SETTLE_MS, WIFI_CONNECT_ATTEMPTS, WIFI_ATTEMPT_DELAY_MS,
+    MQTT_BUFFER_SIZE, MQTT_TOPIC_PREFIX, TEST_PULSE_MS, TEST_PAUSE_MS,
+    LOOP_TICK_MS, RESET_FLUSH_DELAY_MS.
+  - Commented the deliberate safety net in checkLimitSwitches().
+MANIFEST.h:
+  - FIRMWARE_VERSION 1.2.0 -> 1.3.0; LAST UPDATED 2026-07-29.
+  - Fixed @REPO URL (CoveSlidingDoor -> CoveDoor), stale duty 180 -> 220,
+    removed false ramp-down claims, corrected timeout log wording.
+  - Documented TEST_MOTOR (@COMMAND, @OPERATION, @TEST:STEP9) and TESTING
+    (@STATUS_MSG); noted v1.3.0 single-publish-per-transition behavior.
+  - Removed unused <cstdint>; added all new constants with @tags.
+Repo: added .gitignore (.pio/, .vscode/); removed empty zigbee-devices/.
+Build: PASS (pio run — Flash 58.3%, RAM 13.8%).
+NOTE: mounted board still runs v1.2.0 — flash pending. WatchTower note:
+  v1.3.0 publishes ONE status per transition (was double) — verify nothing
+  depended on the duplicates before deploying.

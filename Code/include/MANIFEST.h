@@ -29,13 +29,12 @@
  *    5. This file is the sole source of configuration values — main.cpp
  *       should reference these constants, not hardcode its own.
  *
- *  LAST UPDATED: 2026-02-12
+ *  LAST UPDATED: 2026-07-29
  *  MANIFEST VERSION: 2.0
  * ============================================================================
  */
 
 #pragma once
-#include <cstdint>
 
 // ============================================================================
 //  SECTION 1 — IDENTITY
@@ -53,13 +52,14 @@
 //                    track. Two magnetic reed switches define the open and
 //                    closed positions.
 //                    The door responds to OPEN, CLOSE, and STOP commands via
-//                    MQTT, with smooth ramped motor acceleration and
-//                    deceleration for theatrical effect.
+//                    MQTT, with smooth ramped motor acceleration for
+//                    theatrical effect (stops are instant — at a limit,
+//                    on timeout, or on STOP; there is no ramp-down).
 //
 // @ROOM:             Monkey Altar Room (transitions to Cove)
 // @BOARD:            ESP32-DevKitC (regular ESP32)
 // @FRAMEWORK:        Arduino (PlatformIO)
-// @REPO:             https://github.com/Alchemy-Escape-Rooms-Inc/CoveSlidingDoor
+// @REPO:             https://github.com/Alchemy-Escape-Rooms-Inc/CoveDoor
 // @BUILD_STATUS:     INSTALLED
 // @CODE_HEALTH:      GOOD
 // @WATCHTOWER:       COMPLIANT
@@ -69,7 +69,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.2.0";         // @FIRMWARE_VERSION
+inline constexpr const char* FIRMWARE_VERSION  = "1.3.0";         // @FIRMWARE_VERSION
 
 
 // ============================================================================
@@ -81,9 +81,15 @@ inline constexpr const char* FIRMWARE_VERSION  = "1.2.0";         // @FIRMWARE_V
 inline constexpr const char* WIFI_SSID     = "AlchemyGuest";      // @WIFI_SSID
 inline constexpr const char* WIFI_PASSWORD = "VoodooVacation5601"; // @WIFI_PASS
 
+// ── WiFi Connect Retry (boot) ───────────────────────────────────────────────
+inline constexpr int WIFI_CONNECT_ATTEMPTS = 40;                  // @WIFI:CONNECT_ATTEMPTS | Boot WiFi retries (x delay = 20s max wait)
+inline constexpr int WIFI_ATTEMPT_DELAY_MS = 500;                 // @WIFI:ATTEMPT_DELAY    | Delay between boot WiFi retries
+
 // ── MQTT Broker ─────────────────────────────────────────────────────────────
 inline constexpr const char* MQTT_SERVER   = "10.1.10.115";       // @BROKER_IP
 inline constexpr int         MQTT_PORT     = 1883;                // @BROKER_PORT
+inline constexpr const char* MQTT_TOPIC_PREFIX = "MermaidsTale/"; // @TOPIC_PREFIX | Base of every topic: prefix + DEVICE_NAME + suffix
+inline constexpr int         MQTT_BUFFER_SIZE  = 512;             // @MQTT:BUFFER  | PubSubClient packet buffer bytes
 // MQTT Client ID: "CoveDoor-<efuse MAC suffix>" (unique per board; prevents
 // a duplicate-ID kick war if a second board runs this firmware)
 
@@ -111,9 +117,10 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 //  @COMMAND:  STATUS        | Sends state report on /command topic    | Full diagnostic
 //  @COMMAND:  RESET         | Stops motor, reboots ESP32              | Also accepts REBOOT, RESTART
 //  @COMMAND:  PUZZLE_RESET  | Stops motor, re-reads limits, resets state | No reboot
-//  @COMMAND:  OPEN          | Opens the door (ramp up → full → ramp down)
-//  @COMMAND:  CLOSE         | Closes the door (ramp up → full → ramp down)
+//  @COMMAND:  OPEN          | Opens the door (ramp up → full speed → instant stop at limit)
+//  @COMMAND:  CLOSE         | Closes the door (ramp up → full speed → instant stop at limit)
 //  @COMMAND:  STOP          | Emergency stop — kills motor immediately
+//  @COMMAND:  TEST_MOTOR    | Limit-aware ramped pulse in each direction | Publishes TESTING; skips a direction already at its limit, stops early on limit hit
 //
 //  LIMIT SWITCH EVENTS (published on /limit topic):
 //  @LIMIT_EVENT:  LIMIT_OPEN_HIT      | Door reached fully open position
@@ -127,10 +134,16 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 //  @STATUS_MSG:  CLOSING         | Door motor started, closing direction
 //  @STATUS_MSG:  OPEN            | Door reached open position (limit or timeout)
 //  @STATUS_MSG:  CLOSED          | Door reached closed position (limit or timeout)
-//  @STATUS_MSG:  STOPPED         | Motor stopped via STOP command
+//  @STATUS_MSG:  STOPPED         | Motor stopped via STOP command or safety timeout
+//  @STATUS_MSG:  TESTING         | TEST_MOTOR sequence running
 //  @STATUS_MSG:  ALREADY_OPEN    | OPEN command received but door already open
 //  @STATUS_MSG:  ALREADY_CLOSED  | CLOSE command received but door already closed
 //  @STATUS_MSG:  HEARTBEAT:...   | Periodic heartbeat with state, uptime, RSSI
+//
+//  NOTE (v1.3.0): each state transition publishes exactly ONE /status message
+//  (the loop state-change block is the single publisher; the pre-1.3.0
+//  double-publish of STOPPED/OPENING/CLOSING and the double ONLINE at boot
+//  are gone).
 //
 // @END:NETWORK
 
@@ -168,6 +181,10 @@ inline constexpr int PWM_RESOLUTION = 8;                          // @PWM:RESOLU
 inline constexpr int DOOR_RAMP_UP_MS    = 500;                    // @DOOR:RAMP_UP    | 0.5s acceleration to full speed
 inline constexpr int DOOR_TIMEOUT_MS    = 12000;                  // @DOOR:TIMEOUT    | 12s safety timeout if limit switch not hit
 
+// ── TEST_MOTOR Pulses ───────────────────────────────────────────────────────
+inline constexpr int TEST_PULSE_MS      = 2000;                   // @TEST:PULSE_MS | Max duration of each ramped test pulse (limit-aware, stops early)
+inline constexpr int TEST_PAUSE_MS      = 500;                    // @TEST:PAUSE_MS | Pause between the open and close test pulses
+
 // @END:MOTOR
 
 
@@ -189,6 +206,11 @@ inline constexpr int LIMIT_DEBOUNCE_MS = 150;                     // @DEBOUNCE:L
 
 inline constexpr unsigned long WIFI_CHECK_INTERVAL     = 30000;   // @TIMING:WIFI_CHECK     | Check WiFi connection every 30s
 inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQTT_RECONNECT | Retry MQTT connection every 5s
+
+inline constexpr long SERIAL_BAUD           = 115200;             // @TIMING:SERIAL_BAUD    | Serial monitor baud (matches platformio.ini monitor_speed)
+inline constexpr int  BOOT_SETTLE_MS        = 1000;               // @TIMING:BOOT_SETTLE    | Post-Serial.begin settle delay at boot
+inline constexpr int  LOOP_TICK_MS          = 10;                 // @TIMING:LOOP_TICK      | Main loop tick / test-pulse limit poll interval
+inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RESET_FLUSH    | Delay to flush MQTT "OK" before ESP.restart()
 
 // @END:TIMING
 
@@ -264,17 +286,26 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //
 // @OPERATION:OPEN
 //   Send "OPEN" to MermaidsTale/CoveDoor/command
-//   Ramps RPWM up over 0.5s to duty 180, LPWM stays at 0.
+//   Ramps RPWM up over 0.5s to duty 220, LPWM stays at 0.
 //   Publishes "OPENING" immediately, then "OPEN" when complete.
-//   Stops early if open limit switch triggers.
+//   Stops instantly (no ramp-down) when the open limit switch triggers.
 //   Falls back to 12-second timer if limit switch doesn't fire.
 //
 // @OPERATION:CLOSE
 //   Send "CLOSE" to MermaidsTale/CoveDoor/command
-//   Ramps LPWM up over 0.5s to duty 180, RPWM stays at 0.
+//   Ramps LPWM up over 0.5s to duty 220, RPWM stays at 0.
 //   Publishes "CLOSING" immediately, then "CLOSED" when complete.
-//   Stops early if closed limit switch triggers.
+//   Stops instantly (no ramp-down) when the closed limit switch triggers.
 //   Falls back to 12-second timer if limit switch doesn't fire.
+//
+// @OPERATION:TEST_MOTOR
+//   Send "TEST_MOTOR" to MermaidsTale/CoveDoor/command
+//   Publishes "TESTING", then runs a ramped pulse (max 2s) in each
+//   direction. Limit-aware: skips a direction whose limit is already
+//   active, and monitors both switches every 10ms DURING each pulse,
+//   stopping early on a hit — safe to run with the door mid-travel.
+//   Ends by syncing state to the physical position (CLOSED/OPEN/STOPPED)
+//   and publishing it on /status.
 //
 // @OPERATION:EMERGENCY_STOP
 //   Send "STOP" to MermaidsTale/CoveDoor/command
@@ -292,6 +323,7 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 // @TEST:STEP6  Verify LIMIT_CLOSED_HIT appears on /limit topic when door reaches closed position
 // @TEST:STEP7  Send STOP during movement → motor should stop immediately
 // @TEST:STEP8  Send PUZZLE_RESET → expect OK on /command, state syncs to physical position
+// @TEST:STEP9  Send TEST_MOTOR → expect TESTING on /status, a short ramped pulse each direction (skipped/cut at limits), then the synced state on /status
 //
 //  ── KNOWN QUIRKS ───────────────────────────────────────────────────────────
 //
@@ -311,8 +343,9 @@ inline constexpr unsigned long MQTT_RECONNECT_INTERVAL = 5000;    // @TIMING:MQT
 //   The 12-second movement timer serves as a backup timeout. The limit
 //   switches are the primary stop mechanism and are working reliably. If a
 //   limit switch fails to trigger within 12 seconds, the motor stops anyway
-//   and the firmware logs "[TIMEOUT] Door open/close timeout - no limit hit"
-//   on the /log topic. If you see timeout messages, check the limit switches.
+//   and the firmware logs "[TIMEOUT] Door open/close safety timeout - no
+//   limit hit" on the /log topic. If you see timeout messages, check the
+//   limit switches.
 //
 // @QUIRK:PONG_ON_COMMAND
 //   PONG and STATUS responses are published on the /command topic, not
