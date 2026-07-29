@@ -144,3 +144,32 @@ Next steps:
   - Send PING on MermaidsTale/CoveDoor/command to confirm PONG.
   - Send TEST_MOTOR to verify RPWM and LPWM both drive the motor.
 
+
+============================================
+SESSION: 2026-07-29 — Full /audit (Claude)
+============================================
+Pulled origin/master: already up to date at f3070bd (v1.2.0).
+Files reviewed IN FULL: Code/src/main.cpp, Code/include/MANIFEST.h,
+Code/platformio.ini, log.txt, repo layout.
+
+FINDINGS (see conversation for full report):
+CRITICAL:
+  - TEST_MOTOR (main.cpp:474-486) does not monitor limit switches DURING
+    the 2s pulses (only pre-checks) — mid-travel test can drive the door
+    into the end stop at duty 220; printed pinion strip risk. No ramp.
+WARNINGS:
+  - MANIFEST.h:267,274 still say "duty 180" (MOTOR_SPEED is 220)
+  - TEST_MOTOR + TESTING status missing from manifest @COMMAND/@STATUS_MSG
+  - MANIFEST.h:62 @REPO points to CoveSlidingDoor (actual: CoveDoor.git)
+  - Manifest claims ramp-DOWN (lines 56-57, 114-115); code only ramps up
+  - Duplicate status publishes: direct send_status + loop state-change
+    block double-publish STOPPED/OPENING/CLOSING; ONLINE x2 at boot
+SUGGESTIONS: no .gitignore (Code/.pio untracked); magic numbers in
+  main.cpp violate manifest Rule 5; unreachable-but-keepable safety net
+  at main.cpp:613-621; unused <cstdint>; stale LAST UPDATED + timeout
+  wording; empty zigbee-devices/ dir.
+MQTT PROTOCOL: PASS (documented quirk: replies on /command, guarded).
+UI: N/A.
+
+Next steps: user to pick fixes; top candidate = limit-aware TEST_MOTOR
+pulse loop (check limits every ~10ms during pulse).
