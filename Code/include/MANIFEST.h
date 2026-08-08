@@ -55,9 +55,13 @@
 //                    MQTT, with smooth ramped motor acceleration for
 //                    theatrical effect (stops are instant — at a limit,
 //                    on timeout, or on STOP; there is no ramp-down).
+//                    As of v2.0.0 the same board also drives the cove door
+//                    MAGLOCK via a relay/MOSFET on GPIO 21 (LOCK/UNLOCK on
+//                    the /maglock topic, fail-secure LOCKED at boot) —
+//                    absorbing the former standalone CoveDoorMaglock sketch.
 //
 // @ROOM:             Monkey Altar Room (transitions to Cove)
-// @BOARD:            ESP32-DevKitC (regular ESP32)
+// @BOARD:            ESP32-S3-DevKitC-1
 // @FRAMEWORK:        Arduino (PlatformIO)
 // @REPO:             https://github.com/Alchemy-Escape-Rooms-Inc/CoveDoor
 // @BUILD_STATUS:     INSTALLED
@@ -69,7 +73,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.3.0";         // @FIRMWARE_VERSION
+inline constexpr const char* FIRMWARE_VERSION  = "2.0.0-S3";      // @FIRMWARE_VERSION  (ESP32-S3 combined door+maglock; mounted-door pinout 2/5)
 
 
 // ============================================================================
@@ -102,6 +106,7 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 //
 //  SUBSCRIPTIONS:
 //  @SUBSCRIBE:  MermaidsTale/CoveDoor/command      | All commands (standard + door control)
+//  @SUBSCRIBE:  MermaidsTale/CoveDoor/maglock      | LOCK / UNLOCK payloads (empty = retained-erasure, ignored)
 //
 //  PUBLICATIONS:
 //  @PUBLISH:  MermaidsTale/CoveDoor/command         | PONG, STATUS, OK responses  | retain:no
@@ -116,7 +121,7 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 //  @COMMAND:  PING          | Responds PONG on /command topic         | Health check
 //  @COMMAND:  STATUS        | Sends state report on /command topic    | Full diagnostic
 //  @COMMAND:  RESET         | Stops motor, reboots ESP32              | Also accepts REBOOT, RESTART
-//  @COMMAND:  PUZZLE_RESET  | Stops motor, re-reads limits, resets state | No reboot
+//  @COMMAND:  PUZZLE_RESET  | Stops motor, RE-LOCKS maglock, re-reads limits, resets state | No reboot
 //  @COMMAND:  OPEN          | Opens the door (ramp up → full speed → instant stop at limit)
 //  @COMMAND:  CLOSE         | Closes the door (ramp up → full speed → instant stop at limit)
 //  @COMMAND:  STOP          | Emergency stop — kills motor immediately
@@ -154,12 +159,22 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 // @MANIFEST:PINS
 
 // ── Motor Driver (BTS7960 Dual H-Bridge) ────────────────────────────────────
-inline constexpr int RPWM_PIN = 2;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
-inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
+// S3 PINOUT (2026-08-08): RPWM=2, LPWM=5 — matches the MOUNTED door harness
+// so the S3 board drops into the existing wiring. Both are safe non-strapping
+// pins on the S3 (S3 strapping pins are 0/3/45/46, unlike the regular ESP32).
+// The old bench pinout (RPWM=19) is UNUSABLE on the S3: GPIO 19/20 are the
+// native USB D-/D+ pins.
+inline constexpr int RPWM_PIN = 2;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM (matches mounted-door harness)
+inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM (matches mounted-door harness)
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
 inline constexpr int LIMIT_OPEN   = 16;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
 inline constexpr int LIMIT_CLOSED = 17;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
+
+// ── Maglock ─────────────────────────────────────────────────────────────────
+// S3 has NO GPIO 22-25; GPIO 21 chosen for the maglock (user-approved
+// 2026-07-31, carried over from the standalone CoveDoorMaglock sketch).
+inline constexpr int MAGLOCK_PIN = 21;                            // @PIN:MAGLOCK | Relay/MOSFET gate for maglock supply. HIGH=LOCKED (energized), LOW=UNLOCKED. Fail-secure HIGH at boot
 
 // @END:PINS
 
@@ -244,6 +259,14 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //   @PURPOSE:  Detects when door has fully closed
 //   @DETAIL:   Pin 17, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
+// @COMPONENT:  Maglock Relay/MOSFET
+//   @PURPOSE:  Switches the maglock's power supply on GPIO 21
+//   @DETAIL:   HIGH = magnet energized (door held LOCKED), LOW = released.
+//              Fail-secure: driven HIGH as the first statement in setup(),
+//              before Serial/WiFi/MQTT init, so a reboot can never leave the
+//              door unlocked. The S3's GPIO cannot sink maglock current
+//              directly — the pin only drives the relay/MOSFET gate.
+//
 // @END:COMPONENTS
 
 
@@ -307,6 +330,14 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //   Ends by syncing state to the physical position (CLOSED/OPEN/STOPPED)
 //   and publishing it on /status.
 //
+// @OPERATION:MAGLOCK
+//   Send "LOCK" or "UNLOCK" to MermaidsTale/CoveDoor/maglock
+//   LOCK -> GPIO 21 HIGH (magnet energized), UNLOCK -> GPIO 21 LOW.
+//   State changes are logged on /log and reported in the STATUS diagnostic
+//   (MAGLOCK:LOCKED / MAGLOCK:UNLOCKED). Empty payloads (retained-message
+//   erasures from the WatchTower watchdog) are ignored silently.
+//   PUZZLE_RESET re-locks the maglock. Boot default is LOCKED.
+//
 // @OPERATION:EMERGENCY_STOP
 //   Send "STOP" to MermaidsTale/CoveDoor/command
 //   Both RPWM and LPWM are immediately set to 0 — no ramp-down.
@@ -328,10 +359,13 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //  ── KNOWN QUIRKS ───────────────────────────────────────────────────────────
 //
 // @QUIRK:BOARD_HISTORY
-//   This prop has bounced between boards and drivers. Current installed
-//   hardware: regular ESP32-DevKitC + BTS7960. A brief detour migrated the
-//   repo to XY160D and an ESP32-S3; both were reverted. Final pin assignment:
-//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 17.
+//   This prop has bounced between boards and drivers. History: regular
+//   ESP32-DevKitC + BTS7960 (v1.x, still on the mounted door until the S3
+//   swap); a brief detour to XY160D + ESP32-S3 (reverted); as of v2.0.0 the
+//   repo targets ESP32-S3-DevKitC-1 again, now combining the door motor AND
+//   the maglock (formerly the standalone CoveDoorMaglock.ino sketch in
+//   Desktop\Claude Output). Pin assignment: RPWM=GPIO 2, LPWM=GPIO 5,
+//   LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 17, MAGLOCK=GPIO 21.
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -366,11 +400,11 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //  ── TROUBLESHOOTING LOG (2026-02-14) ───────────────────────────────────────
 //
 // @QUIRK:STRAPPING_PINS
-//   On the regular ESP32, GPIO 0, 2, 5, 12, and 15 are strapping pins.
-//   LPWM is on GPIO 5 here and RPWM is on GPIO 2 — both strapping pins.
-//   The installed board has booted reliably with this wiring, but if a
-//   replacement board boot-loops with "invalid header: 0xffffffff",
-//   move LPWM and/or RPWM to non-strapping pins (e.g. GPIO 25/26).
+//   (Historical — applied to the regular ESP32 where GPIO 2 and 5 are
+//   strapping pins.) On the ESP32-S3 the strapping pins are 0, 3, 45, 46,
+//   so RPWM=2 / LPWM=5 are plain GPIOs and boot is unaffected. Do NOT wire
+//   anything to S3 GPIO 19/20 (native USB D-/D+) or GPIO 26-32 (flash/PSRAM).
+//   Also note the S3 has no GPIO 22-25 at all.
 //
 // @QUIRK:GPIO33_AVOIDED
 //   An earlier iteration put LIMIT_CLOSED on GPIO 33 and hit a defective
@@ -399,24 +433,31 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //
 // @MANIFEST:WIRING
 //
-//   ESP32 Pin 2  (RPWM) ──────── BTS7960 RPWM (forward / open PWM)
-//   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse / close PWM)
+//   ESP32-S3 Pin 2  (RPWM) ───── BTS7960 RPWM (forward / open PWM)
+//   ESP32-S3 Pin 5  (LPWM) ───── BTS7960 LPWM (reverse / close PWM)
 //   3.3V             ─────────── BTS7960 R_EN (always enabled)
 //   3.3V             ─────────── BTS7960 L_EN (always enabled)
 //
-//   ESP32 Pin 16 ─────────────── Magnetic Reed Switch (OPEN position)
+//   ESP32-S3 Pin 16 ──────────── Magnetic Reed Switch (OPEN position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
-//   ESP32 Pin 17 ─────────────── Magnetic Reed Switch (CLOSED position)
+//   ESP32-S3 Pin 17 ──────────── Magnetic Reed Switch (CLOSED position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
+//
+//   ESP32-S3 Pin 21 ──────────── Relay/MOSFET gate for maglock supply
+//                                 HIGH = magnet energized (LOCKED)
+//                                 LOW  = released (UNLOCKED)
+//                                 GPIO cannot drive the maglock directly!
 //
 //   BTS7960 VCC  ─────────────── Motor power supply (12V/24V)
-//   BTS7960 GND  ─────────────── Common ground with ESP32
+//   BTS7960 GND  ─────────────── Common ground with ESP32-S3
 //   BTS7960 M+/M- ────────────── DC sliding door motor
 //
-//   ESP32 Power ──────────────── USB, hidden above the door frame
+//   Maglock PSU ──────────────── Switched through the relay/MOSFET (Pin 21)
+//
+//   ESP32-S3 Power ───────────── USB, hidden above the door frame
 //
 //   Physical Location: Hidden above the door frame, accessible from above
 //

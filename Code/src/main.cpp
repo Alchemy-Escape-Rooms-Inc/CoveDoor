@@ -1,13 +1,14 @@
 /*
  * ============================================
  * ALCHEMY ESCAPE ROOM - COVE SLIDING DOOR CONTROLLER
- * ESP32 + BTS7960 Dual H-Bridge Motor Driver
+ * ESP32-S3 + BTS7960 Dual H-Bridge Motor Driver + Maglock Relay
  * ============================================
  *
  * Uses Arduino ESP32 core 2.x ledcSetup/ledcAttachPin API.
  *
  * MQTT TOPICS:
  *   Subscribe: MermaidsTale/CoveDoor/command
+ *   Subscribe: MermaidsTale/CoveDoor/maglock   (LOCK / UNLOCK)
  *   Publish:   MermaidsTale/CoveDoor/status
  *   Publish:   MermaidsTale/CoveDoor/log
  *   Publish:   MermaidsTale/CoveDoor/limit
@@ -17,6 +18,11 @@
  *   LPWM -> GPIO 5  (PWM for closing)
  *   R_EN -> 3.3V    (always enabled)
  *   L_EN -> 3.3V    (always enabled)
+ *
+ * MAGLOCK WIRING:
+ *   GPIO 21 -> relay/MOSFET gate switching the maglock supply
+ *   HIGH = magnet energized (LOCKED), LOW = released (UNLOCKED)
+ *   Fail-secure: pin driven HIGH first thing at boot.
  * ============================================
  */
 
@@ -39,6 +45,7 @@ const int   MQTT_PORT     = manifest::MQTT_PORT;
 #define LPWM_PIN        manifest::LPWM_PIN
 #define LIMIT_OPEN      manifest::LIMIT_OPEN
 #define LIMIT_CLOSED    manifest::LIMIT_CLOSED
+#define MAGLOCK_PIN     manifest::MAGLOCK_PIN
 
 #define MOTOR_SPEED     manifest::MOTOR_SPEED
 
@@ -69,6 +76,9 @@ String mqtt_topic_command;
 String mqtt_topic_status;
 String mqtt_topic_log;
 String mqtt_topic_limit;
+String mqtt_topic_maglock;
+
+bool maglockLocked = true;
 
 enum DoorState {
   DOOR_CLOSED,
@@ -118,6 +128,7 @@ void mqttLogf(const char* format, ...);
 void startOpening();
 void startClosing();
 void stopMotor();
+void setMaglock(bool locked);
 void runTestPulse(bool openDirection);
 void setMotorSpeed(int openSpeed, int closeSpeed);
 void checkLimitSwitches();
@@ -147,12 +158,18 @@ void publishLimitEvent(const char* event) {
 }
 
 void setup() {
+  // Fail-secure: energize the maglock before anything else can delay us.
+  // A power blip must never leave the cove door swinging free mid-game.
+  pinMode(MAGLOCK_PIN, OUTPUT);
+  digitalWrite(MAGLOCK_PIN, HIGH);
+  maglockLocked = true;
+
   Serial.begin(SERIAL_BAUD);
   delay(BOOT_SETTLE_MS);
 
   Serial.println("\n============================================");
-  Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32");
-  Serial.println("   BTS7960 Dual H-Bridge Motor Driver");
+  Serial.println("   COVE SLIDING DOOR CONTROLLER - ESP32-S3");
+  Serial.println("   BTS7960 Motor Driver + Maglock Relay");
   Serial.println("============================================");
   Serial.print("Device Name: ");
   Serial.println(DEVICE_NAME);
@@ -168,6 +185,9 @@ void setup() {
   mqtt_topic_status  = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/status";
   mqtt_topic_log     = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/log";
   mqtt_topic_limit   = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/limit";
+  mqtt_topic_maglock = String(MQTT_TOPIC_PREFIX) + DEVICE_NAME + "/maglock";
+
+  Serial.println("[INIT] Maglock LOCKED (GPIO21 HIGH, fail-secure boot default)");
 
   // BTS7960 PWM outputs — Arduino core 2.x ledcSetup/ledcAttachPin API
   ledcSetup(PWM_CHANNEL_R, PWM_FREQ, PWM_RESOLUTION);
@@ -347,6 +367,7 @@ void mqtt_reconnect() {
   if (mqtt.connect(clientId.c_str())) {
     Serial.println(" Connected!");
     mqtt.subscribe(mqtt_topic_command.c_str());
+    mqtt.subscribe(mqtt_topic_maglock.c_str());
     send_status("ONLINE");
     mqttLogf("[MQTT] Connected - Current state: %s", getStateString(currentState));
   } else {
@@ -385,6 +406,22 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     *p = toupper(*p);
   }
 
+  if (strcmp(topicBuf, mqtt_topic_maglock.c_str()) == 0) {
+    // Empty payloads are retained-message erasures (WatchTower watchdog
+    // sweeps /maglock) — ignore silently, never actuate on them.
+    if (strlen(msg) == 0) {
+      return;
+    }
+    if (strcmp(msg, "LOCK") == 0) {
+      setMaglock(true);
+    } else if (strcmp(msg, "UNLOCK") == 0) {
+      setMaglock(false);
+    } else {
+      mqttLogf("[MAGLOCK] Unrecognized payload: %s", msg);
+    }
+    return;
+  }
+
   if (strcmp(topicBuf, mqtt_topic_command.c_str()) != 0) {
     return;
   }
@@ -408,13 +445,14 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   if (strcmp(msg, "STATUS") == 0) {
     unsigned long uptime = (millis() - bootTime) / 1000;
     char statusBuf[128];
-    snprintf(statusBuf, sizeof(statusBuf), "%s|UP:%lus|RSSI:%d|VER:%s|LIMIT_OPEN:%s|LIMIT_CLOSED:%s",
+    snprintf(statusBuf, sizeof(statusBuf), "%s|UP:%lus|RSSI:%d|VER:%s|LIMIT_OPEN:%s|LIMIT_CLOSED:%s|MAGLOCK:%s",
       getStateString(currentState),
       uptime,
       WiFi.RSSI(),
       FIRMWARE_VERSION,
       debouncedLimitOpen ? "ACTIVE" : "CLEAR",
-      debouncedLimitClosed ? "ACTIVE" : "CLEAR");
+      debouncedLimitClosed ? "ACTIVE" : "CLEAR",
+      maglockLocked ? "LOCKED" : "UNLOCKED");
     mqtt.publish(mqtt_topic_command.c_str(), statusBuf);
     mqttLogf("[CMD] STATUS -> %s", statusBuf);
     return;
@@ -431,6 +469,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
   if (strcmp(msg, "PUZZLE_RESET") == 0) {
     stopMotor();
+    setMaglock(true);
     if (debouncedLimitClosed) {
       currentState = DOOR_CLOSED;
     } else if (debouncedLimitOpen) {
@@ -583,6 +622,18 @@ void startClosing() {
 void stopMotor() {
   setMotorSpeed(0, 0);
   mqttLog("[MOTOR] Motor stopped - RPWM=0, LPWM=0");
+}
+
+// ============================================
+// MAGLOCK CONTROL
+// ============================================
+void setMaglock(bool locked) {
+  digitalWrite(MAGLOCK_PIN, locked ? HIGH : LOW);
+  bool changed = (maglockLocked != locked);
+  maglockLocked = locked;
+  if (changed) {
+    mqttLogf("[MAGLOCK] %s", locked ? "LOCK (GPIO21 HIGH)" : "UNLOCK (GPIO21 LOW)");
+  }
 }
 
 // Limit-aware TEST_MOTOR pulse: ramps up like a normal move and watches the
