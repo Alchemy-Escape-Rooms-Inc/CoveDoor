@@ -69,7 +69,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.3.0";         // @FIRMWARE_VERSION
+inline constexpr const char* FIRMWARE_VERSION  = "1.3.2";         // @FIRMWARE_VERSION  (limit switches 16/17 → 33/32 for the 08-08 replacement door board)
 
 
 // ============================================================================
@@ -158,8 +158,12 @@ inline constexpr int RPWM_PIN = 2;                                // @PIN:RPWM  
 inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
-inline constexpr int LIMIT_OPEN   = 16;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
-inline constexpr int LIMIT_CLOSED = 17;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
+// 2026-08-08: moved 16/17 → 33/32 for the replacement door board (user
+// request). CLOSED returns to its pre-July GPIO 32. The GPIO33_AVOIDED quirk
+// below was a defect on ONE old board's internal pull-up — verify 33 reads
+// HIGH-when-open on this board via STATUS before trusting the open limit.
+inline constexpr int LIMIT_OPEN   = 33;                           // @PIN:LIMIT_OPEN   | Magnetic reed switch, INPUT_PULLUP, active LOW
+inline constexpr int LIMIT_CLOSED = 32;                           // @PIN:LIMIT_CLOSED | Magnetic reed switch, INPUT_PULLUP, active LOW
 
 // @END:PINS
 
@@ -238,11 +242,11 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //
 // @COMPONENT:  Magnetic Reed Switch (Open Position)
 //   @PURPOSE:  Detects when door has fully opened
-//   @DETAIL:   Pin 16, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
+//   @DETAIL:   Pin 33, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
 // @COMPONENT:  Magnetic Reed Switch (Closed Position)
 //   @PURPOSE:  Detects when door has fully closed
-//   @DETAIL:   Pin 17, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
+//   @DETAIL:   Pin 32, INPUT_PULLUP, active LOW. Magnet mounted on door panel.
 //
 // @END:COMPONENTS
 
@@ -331,7 +335,8 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //   This prop has bounced between boards and drivers. Current installed
 //   hardware: regular ESP32-DevKitC + BTS7960. A brief detour migrated the
 //   repo to XY160D and an ESP32-S3; both were reverted. Final pin assignment:
-//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 16, LIMIT_CLOSED=GPIO 17.
+//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 33, LIMIT_CLOSED=GPIO 32
+//   (limits were 16/17 from July until the 08-08 replacement board).
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -374,9 +379,12 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //
 // @QUIRK:GPIO33_AVOIDED
 //   An earlier iteration put LIMIT_CLOSED on GPIO 33 and hit a defective
-//   internal pull-up on that specific board (stuck at 0.55V). LIMIT_CLOSED
-//   is on GPIO 17 now (previously 32 on the regular ESP32). GPIO 17 is a
-//   safe non-strapping input pin with a working internal pull-up.
+//   internal pull-up on that specific board (stuck at 0.55V) — a board
+//   defect, not a chip-family issue. As of v1.3.2 the limits are BACK on
+//   33/32 (LIMIT_OPEN=33, LIMIT_CLOSED=32) on the 08-08 replacement board
+//   (MAC ec:e3:34:19:83:a8). Verify via STATUS that both limits read CLEAR
+//   with no magnet present; a stuck-ACTIVE LIMIT_OPEN means this board's
+//   GPIO 33 pull-up is bad too — move it and reflash.
 //
 // @END:OPERATIONS
 
@@ -404,11 +412,11 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //   3.3V             ─────────── BTS7960 R_EN (always enabled)
 //   3.3V             ─────────── BTS7960 L_EN (always enabled)
 //
-//   ESP32 Pin 16 ─────────────── Magnetic Reed Switch (OPEN position)
+//   ESP32 Pin 33 ─────────────── Magnetic Reed Switch (OPEN position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
-//   ESP32 Pin 17 ─────────────── Magnetic Reed Switch (CLOSED position)
+//   ESP32 Pin 32 ─────────────── Magnetic Reed Switch (CLOSED position)
 //                                 Closes to GND when magnet is nearby
 //                                 INPUT_PULLUP, active LOW
 //
