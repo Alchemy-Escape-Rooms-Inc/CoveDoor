@@ -29,7 +29,7 @@
  *    5. This file is the sole source of configuration values — main.cpp
  *       should reference these constants, not hardcode its own.
  *
- *  LAST UPDATED: 2026-07-29
+ *  LAST UPDATED: 2026-08-10
  *  MANIFEST VERSION: 2.0
  * ============================================================================
  */
@@ -69,7 +69,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.3.2";         // @FIRMWARE_VERSION  (limit switches 16/17 → 33/32 for the 08-08 replacement door board)
+inline constexpr const char* FIRMWARE_VERSION  = "1.3.3";         // @FIRMWARE_VERSION  (motor PWM 2/5 → 19/4, off the strapping pins)
 
 
 // ============================================================================
@@ -154,8 +154,11 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 // @MANIFEST:PINS
 
 // ── Motor Driver (BTS7960 Dual H-Bridge) ────────────────────────────────────
-inline constexpr int RPWM_PIN = 2;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
-inline constexpr int LPWM_PIN = 5;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
+// 2026-08-10: moved RPWM 2 → 19 and LPWM 5 → 4 (user request). Bonus: this
+// moves the motor PWM off the regular ESP32's strapping pins (2 and 5), so
+// the BTS7960 can no longer interfere with boot mode.
+inline constexpr int RPWM_PIN = 19;                               // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
+inline constexpr int LPWM_PIN = 4;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
 // 2026-08-08: moved 16/17 → 33/32 for the replacement door board (user
@@ -335,8 +338,9 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //   This prop has bounced between boards and drivers. Current installed
 //   hardware: regular ESP32-DevKitC + BTS7960. A brief detour migrated the
 //   repo to XY160D and an ESP32-S3; both were reverted. Final pin assignment:
-//   RPWM=GPIO 2, LPWM=GPIO 5, LIMIT_OPEN=GPIO 33, LIMIT_CLOSED=GPIO 32
-//   (limits were 16/17 from July until the 08-08 replacement board).
+//   RPWM=GPIO 19, LPWM=GPIO 4, LIMIT_OPEN=GPIO 33, LIMIT_CLOSED=GPIO 32
+//   (limits were 16/17 from July until the 08-08 replacement board;
+//   motor PWM was 2/5 until the 08-10 move to 19/4).
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -372,10 +376,10 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //
 // @QUIRK:STRAPPING_PINS
 //   On the regular ESP32, GPIO 0, 2, 5, 12, and 15 are strapping pins.
-//   LPWM is on GPIO 5 here and RPWM is on GPIO 2 — both strapping pins.
-//   The installed board has booted reliably with this wiring, but if a
-//   replacement board boot-loops with "invalid header: 0xffffffff",
-//   move LPWM and/or RPWM to non-strapping pins (e.g. GPIO 25/26).
+//   Historical: RPWM/LPWM sat on GPIO 2/5 (both strapping pins) through
+//   v1.3.2 and booted reliably anyway. As of v1.3.3 the motor PWM is on
+//   GPIO 19/4 — neither is a strapping pin, so the BTS7960 can no longer
+//   interfere with boot mode.
 //
 // @QUIRK:GPIO33_AVOIDED
 //   An earlier iteration put LIMIT_CLOSED on GPIO 33 and hit a defective
@@ -407,8 +411,8 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //
 // @MANIFEST:WIRING
 //
-//   ESP32 Pin 2  (RPWM) ──────── BTS7960 RPWM (forward / open PWM)
-//   ESP32 Pin 5  (LPWM) ──────── BTS7960 LPWM (reverse / close PWM)
+//   ESP32 Pin 19 (RPWM) ──────── BTS7960 RPWM (forward / open PWM)
+//   ESP32 Pin 4  (LPWM) ──────── BTS7960 LPWM (reverse / close PWM)
 //   3.3V             ─────────── BTS7960 R_EN (always enabled)
 //   3.3V             ─────────── BTS7960 L_EN (always enabled)
 //

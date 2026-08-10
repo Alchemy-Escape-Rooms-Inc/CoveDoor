@@ -13,8 +13,8 @@
  *   Publish:   MermaidsTale/CoveDoor/limit
  *
  * BTS7960 WIRING:
- *   RPWM -> GPIO 2  (PWM for opening)
- *   LPWM -> GPIO 5  (PWM for closing)
+ *   RPWM -> GPIO 19 (PWM for opening)
+ *   LPWM -> GPIO 4  (PWM for closing)
  *   R_EN -> 3.3V    (always enabled)
  *   L_EN -> 3.3V    (always enabled)
  * ============================================
