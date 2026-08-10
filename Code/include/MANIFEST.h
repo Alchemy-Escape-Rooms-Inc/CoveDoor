@@ -69,7 +69,7 @@ namespace manifest {
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 inline constexpr const char* DEVICE_NAME      = "CoveDoor";       // @DEVICE_NAME  (MQTT client ID + topic base)
-inline constexpr const char* FIRMWARE_VERSION  = "1.3.3";         // @FIRMWARE_VERSION  (motor PWM 2/5 → 19/4, off the strapping pins)
+inline constexpr const char* FIRMWARE_VERSION  = "1.3.4";         // @FIRMWARE_VERSION  (motor PWM swapped: RPWM=4, LPWM=19)
 
 
 // ============================================================================
@@ -154,11 +154,11 @@ inline constexpr unsigned long HEARTBEAT_INTERVAL = 300000;       // @HEARTBEAT_
 // @MANIFEST:PINS
 
 // ── Motor Driver (BTS7960 Dual H-Bridge) ────────────────────────────────────
-// 2026-08-10: moved RPWM 2 → 19 and LPWM 5 → 4 (user request). Bonus: this
-// moves the motor PWM off the regular ESP32's strapping pins (2 and 5), so
-// the BTS7960 can no longer interfere with boot mode.
-inline constexpr int RPWM_PIN = 19;                               // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
-inline constexpr int LPWM_PIN = 4;                                // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
+// 2026-08-10: moved motor PWM off the strapping pins (2/5) onto 19/4, then
+// swapped the pair same day (v1.3.4) so OPEN drives the correct direction —
+// matches the 08-08 bench finding that OPEN ran backwards.
+inline constexpr int RPWM_PIN = 4;                                // @PIN:RPWM   | BTS7960 RPWM — forward/open direction PWM
+inline constexpr int LPWM_PIN = 19;                               // @PIN:LPWM   | BTS7960 LPWM — reverse/close direction PWM
 
 // ── Limit Switches ──────────────────────────────────────────────────────────
 // 2026-08-08: moved 16/17 → 33/32 for the replacement door board (user
@@ -338,9 +338,10 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //   This prop has bounced between boards and drivers. Current installed
 //   hardware: regular ESP32-DevKitC + BTS7960. A brief detour migrated the
 //   repo to XY160D and an ESP32-S3; both were reverted. Final pin assignment:
-//   RPWM=GPIO 19, LPWM=GPIO 4, LIMIT_OPEN=GPIO 33, LIMIT_CLOSED=GPIO 32
+//   RPWM=GPIO 4, LPWM=GPIO 19, LIMIT_OPEN=GPIO 33, LIMIT_CLOSED=GPIO 32
 //   (limits were 16/17 from July until the 08-08 replacement board;
-//   motor PWM was 2/5 until the 08-10 move to 19/4).
+//   motor PWM was 2/5 until 08-10: first 19/4, then swapped to 4/19
+//   for correct OPEN direction).
 //
 // @QUIRK:NO_WATCHDOG
 //   This firmware does not implement a hardware watchdog timer. If the main
@@ -377,8 +378,8 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 // @QUIRK:STRAPPING_PINS
 //   On the regular ESP32, GPIO 0, 2, 5, 12, and 15 are strapping pins.
 //   Historical: RPWM/LPWM sat on GPIO 2/5 (both strapping pins) through
-//   v1.3.2 and booted reliably anyway. As of v1.3.3 the motor PWM is on
-//   GPIO 19/4 — neither is a strapping pin, so the BTS7960 can no longer
+//   v1.3.2 and booted reliably anyway. As of v1.3.3/1.3.4 the motor PWM is
+//   on GPIO 4/19 — neither is a strapping pin, so the BTS7960 can no longer
 //   interfere with boot mode.
 //
 // @QUIRK:GPIO33_AVOIDED
@@ -411,8 +412,8 @@ inline constexpr int  RESET_FLUSH_DELAY_MS  = 100;                // @TIMING:RES
 //
 // @MANIFEST:WIRING
 //
-//   ESP32 Pin 19 (RPWM) ──────── BTS7960 RPWM (forward / open PWM)
-//   ESP32 Pin 4  (LPWM) ──────── BTS7960 LPWM (reverse / close PWM)
+//   ESP32 Pin 4  (RPWM) ──────── BTS7960 RPWM (forward / open PWM)
+//   ESP32 Pin 19 (LPWM) ──────── BTS7960 LPWM (reverse / close PWM)
 //   3.3V             ─────────── BTS7960 R_EN (always enabled)
 //   3.3V             ─────────── BTS7960 L_EN (always enabled)
 //
