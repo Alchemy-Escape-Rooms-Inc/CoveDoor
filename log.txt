@@ -218,3 +218,15 @@ Compile: PASS. Flash: SUCCESS to BENCH board on COM4 (hash verified).
 Live verify: PING->PONG, STATUS->...VER:1.3.0..., no echo bounces, UP:52s.
 NOTE: MOUNTED door board still runs v1.2.0 — this flash went to the bench
       board. Swap/remount or flash the mounted one to complete rollout.
+
+=== 2026-08-14 (deploy) ===
+Flashed v2.0.0-S3 (s3-combined, 535a807) to the ESP32-S3 via its CH343 UART
+port on COM3 (pio run -e esp32-s3-devkitc-1, first try, auto-reset OK).
+Board previously ran TridentCabinet v1.4.0 - it is now the combined
+CoveDoor door+maglock board.
+Boot verify on serial: v2.0.0-S3 banner, maglock LOCKED (GPIO21 fail-secure),
+RPWM=GPIO2/LPWM=GPIO5, limits GPIO16/17, WiFi 10.1.10.8 @ -56dBm,
+MQTT connected to 10.1.10.115. State STOPPED, position UNKNOWN.
+Retained check: MermaidsTale/CoveDoor/# clean (no retained msgs).
+REMINDER: maglock now owned by THIS board (GPIO21) - do NOT also wire
+TridentCabinet v1.4.0 GPIO35 maglock output (wire only ONE).
